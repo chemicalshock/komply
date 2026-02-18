@@ -10,6 +10,12 @@ Example:
 - `.komply/cpp.xml` applies to all `*.cpp` files
 - `.komply/py.xml` applies to all `*.py` files
 
+You can override target matching on `<komply>` for extensionless or custom files:
+
+- `match="extension"` with optional `pattern=".cpp"` (default behavior)
+- `match="filename"` with `pattern="Makefile"` (or glob on filename)
+- `match="glob"` with `pattern="**/Makefile"` (repo-relative path glob)
+
 ## Supported Rules
 
 - `max-line-length value="N"`

@@ -30,7 +30,8 @@ class Rule:
 @dataclass(frozen=True)
 class Policy:
     name: str
-    extension: str
+    matcher_kind: str
+    matcher_value: str
     config_path: Path
     includes: tuple[str, ...]
     excludes: tuple[str, ...]
@@ -70,6 +71,7 @@ SUPPORTED_RULES = (
     "forbid-trailing-whitespace",
     "require-final-newline",
 )
+SUPPORTED_MATCH_KINDS = ("extension", "filename", "glob")
 
 
 def scan_repository(repo_root: Path, config_dir: Path) -> ScanReport:
@@ -128,6 +130,8 @@ def parse_policy(config_path: Path) -> Policy:
     extension = config_path.stem
     if not extension.startswith("."):
         extension = f".{extension}"
+    matcher_kind = "extension"
+    matcher_value = extension
 
     try:
         root = ET.parse(config_path).getroot()
@@ -139,6 +143,11 @@ def parse_policy(config_path: Path) -> Policy:
         rules_parent = root.find("rules")
         if rules_parent is None:
             raise KomplyConfigError(f"{config_path}: missing <rules> block")
+        matcher_kind, matcher_value = parse_target_matcher(
+            config_path=config_path,
+            root=root,
+            default_extension=extension,
+        )
     elif root.tag == "rules":
         filters_parent = None
         rules_parent = root
@@ -154,12 +163,40 @@ def parse_policy(config_path: Path) -> Policy:
 
     return Policy(
         name=config_path.stem,
-        extension=extension,
+        matcher_kind=matcher_kind,
+        matcher_value=matcher_value,
         config_path=config_path,
         includes=tuple(includes),
         excludes=tuple(excludes),
         rules=tuple(rules),
     )
+
+
+def parse_target_matcher(
+    config_path: Path,
+    root: ET.Element,
+    default_extension: str,
+) -> tuple[str, str]:
+    raw_kind = (root.attrib.get("match") or "").strip()
+    raw_pattern = (root.attrib.get("pattern") or "").strip()
+
+    if not raw_kind:
+        return "extension", default_extension
+    if raw_kind not in SUPPORTED_MATCH_KINDS:
+        raise KomplyConfigError(
+            f"{config_path}: attribute 'match' must be one of: {', '.join(SUPPORTED_MATCH_KINDS)}"
+        )
+    if raw_kind == "extension":
+        pattern = raw_pattern or default_extension
+        if not pattern.startswith("."):
+            pattern = f".{pattern}"
+        return raw_kind, pattern
+
+    if not raw_pattern:
+        raise KomplyConfigError(
+            f"{config_path}: attribute 'pattern' is required when match='{raw_kind}'"
+        )
+    return raw_kind, raw_pattern
 
 
 def parse_filters(filters_parent: ET.Element | None) -> tuple[list[str], list[str]]:
@@ -411,13 +448,16 @@ def discover_targets(repo_root: Path, config_dir: Path, policy: Policy) -> list[
         config_prefix = None
     targets: list[Path] = []
 
-    for path in repo_root.rglob(f"*{policy.extension}"):
+    iterator = candidate_iterator(repo_root, policy)
+    for path in iterator:
         if not path.is_file():
             continue
         rel = path.relative_to(repo_root).as_posix()
         if config_prefix and rel.startswith(config_prefix):
             continue
         if rel.startswith(".git/"):
+            continue
+        if not matches_policy_target(path, rel, policy):
             continue
         if not matches_filters(rel, policy.includes, policy.excludes):
             continue
@@ -432,6 +472,22 @@ def matches_filters(path: str, includes: tuple[str, ...], excludes: tuple[str, .
     if any(fnmatch(path, pattern) for pattern in excludes):
         return False
     return True
+
+
+def candidate_iterator(repo_root: Path, policy: Policy):
+    if policy.matcher_kind == "extension":
+        return repo_root.rglob(f"*{policy.matcher_value}")
+    return repo_root.rglob("*")
+
+
+def matches_policy_target(path: Path, rel_path: str, policy: Policy) -> bool:
+    if policy.matcher_kind == "extension":
+        return rel_path.endswith(policy.matcher_value)
+    if policy.matcher_kind == "filename":
+        return fnmatch(path.name, policy.matcher_value)
+    if policy.matcher_kind == "glob":
+        return fnmatch(rel_path, policy.matcher_value)
+    return False
 
 
 def evaluate_file(path: Path, policy: Policy) -> list[Violation]:

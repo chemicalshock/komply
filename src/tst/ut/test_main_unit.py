@@ -80,6 +80,59 @@ class TestMainUnit(unittest.TestCase):
         self.assertIn("[max-lines] [tier:scope] [level:weighted:8]", text)
         self.assertNotIn("ignored.cpp", text)
 
+    def test_matches_extensionless_makefile_by_filename(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            (repo_root / ".komply").mkdir()
+            (repo_root / ".komply" / "makefile.xml").write_text(
+                (
+                    "<komply match=\"filename\" pattern=\"Makefile\">\n"
+                    "  <rules>\n"
+                    "    <forbid-regex pattern=\"\\bTODO\\b\" tier=\"build\" weight=\"3\" />\n"
+                    "  </rules>\n"
+                    "</komply>\n"
+                ),
+                encoding="utf-8",
+            )
+            (repo_root / "Makefile").write_text("all:\n\t@echo TODO\n", encoding="utf-8")
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main.main(["--repo-root", str(repo_root)])
+
+        self.assertEqual(code, 0)
+        text = output.getvalue()
+        self.assertIn("- makefile: 1 file(s) matched", text)
+        self.assertIn("- Makefile", text)
+        self.assertIn("[forbid-regex] [tier:build] [level:weighted:3]", text)
+
+    def test_matches_by_repo_path_glob(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            (repo_root / ".komply").mkdir()
+            (repo_root / ".komply" / "build.xml").write_text(
+                (
+                    "<komply match=\"glob\" pattern=\"**/Makefile\">\n"
+                    "  <rules>\n"
+                    "    <forbid-regex pattern=\"\\bTODO\\b\" tier=\"build\" weight=\"3\" />\n"
+                    "  </rules>\n"
+                    "</komply>\n"
+                ),
+                encoding="utf-8",
+            )
+            (repo_root / "src").mkdir()
+            (repo_root / "src" / "Makefile").write_text("all:\n\t@echo TODO\n", encoding="utf-8")
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main.main(["--repo-root", str(repo_root)])
+
+        self.assertEqual(code, 0)
+        text = output.getvalue()
+        self.assertIn("- build: 1 file(s) matched", text)
+        self.assertIn("- src/Makefile", text)
+        self.assertIn("[forbid-regex] [tier:build] [level:weighted:3]", text)
+
     def test_max_function_lines_detects_large_function_body(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
