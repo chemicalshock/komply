@@ -1,3 +1,14 @@
+# -------------------------------------------------------------
+#
+#!\file engine.py
+#!\brief Main engine for loading policies, discovering target 
+#       files, evaluating rules, and generating scan reports.
+#!\author Colin J.D. Stewart
+#
+# -------------------------------------------------------------
+#            Copyright (c) 2026. Colin J.D. Stewart
+#                    All rights reserved
+# -------------------------------------------------------------
 from __future__ import annotations
 
 from dataclasses import dataclass

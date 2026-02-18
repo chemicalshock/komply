@@ -1,16 +1,21 @@
 #!/bin/sh
 # -------------------------------------------------------------
 #
-# entry point
+#!\file main
+#!\brief Main entry point for the komply command-line tool.
+#!\author Colin J.D. Stewart
 #
+# -------------------------------------------------------------
+#            Copyright (c) 2026. Colin J.D. Stewart
+#                    All rights reserved
 # -------------------------------------------------------------
 
 set -eu
 
-# resolve script dir (works even if called via symlink in most cases)
+# resolve script dir
 SCRIPT_PATH="$0"
 
-# If readlink exists, try to resolve symlinks (best-effort).
+# if readlink exists, try to resolve symlinks (best-effort).
 if command -v readlink >/dev/null 2>&1; then
   # Busybox readlink may not support -f; do it safely.
   RESOLVED="$(readlink "$SCRIPT_PATH" 2>/dev/null || true)"

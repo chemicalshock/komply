@@ -1,3 +1,13 @@
+# -------------------------------------------------------------
+#
+#!\file run_sy.py
+#!\brief System test runner for the komply command-line tool.
+#!\author Colin J.D. Stewart
+#
+# -------------------------------------------------------------
+#            Copyright (c) 2026. Colin J.D. Stewart
+#                    All rights reserved
+# -------------------------------------------------------------
 from __future__ import annotations
 
 import os

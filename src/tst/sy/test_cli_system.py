@@ -1,3 +1,13 @@
+# -------------------------------------------------------------
+#
+#!\file test_cli_system.py
+#!\brief System tests for the komply command-line tool.
+#!\author Colin J.D. Stewart
+#
+# -------------------------------------------------------------
+#            Copyright (c) 2026. Colin J.D. Stewart
+#                    All rights reserved
+# -------------------------------------------------------------
 from __future__ import annotations
 
 import subprocess

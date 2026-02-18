@@ -1,4 +1,14 @@
 #!/bin/sh
+# -------------------------------------------------------------
+#
+#!\file komply
+#!\brief Main entry point for the komply command-line tool.
+#!\author Colin J.D. Stewart
+#
+# -------------------------------------------------------------
+#            Copyright (c) 2026. Colin J.D. Stewart
+#                    All rights reserved
+# -------------------------------------------------------------
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

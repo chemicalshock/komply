@@ -1,3 +1,13 @@
+# -------------------------------------------------------------
+#
+#!\file test_main_unit.py
+#!\brief Unit tests for the main.py module of the komply command-line tool.
+#!\author Colin J.D. Stewart
+#
+# -------------------------------------------------------------
+#            Copyright (c) 2026. Colin J.D. Stewart
+#                    All rights reserved
+# -------------------------------------------------------------
 from __future__ import annotations
 
 import io
