@@ -1,4 +1,10 @@
-<komply>
+<komply match="filename" pattern="*">
+  <filters>
+    <include glob="*.cpp" />
+    <include glob="**/*.cpp" />
+    <include glob="*.hpp" />
+    <include glob="**/*.hpp" />
+  </filters>
   <rules>
     <max-line-length value="120" tier="maintainability" weight="2" />
     <max-lines value="2000" tier="maintainability" weight="6" />

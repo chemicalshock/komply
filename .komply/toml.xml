@@ -1,0 +1,9 @@
+<komply>
+  <rules>
+    <max-line-length value="140" tier="maintainability" weight="2" />
+    <max-lines value="1200" tier="maintainability" weight="3" />
+    <forbid-trailing-whitespace tier="style" weight="2" />
+    <require-final-newline tier="style" weight="1" />
+    <forbid-regex pattern="\b(TODO|FIXME)\b" tier="delivery" weight="3" include-strings="false" />
+  </rules>
+</komply>

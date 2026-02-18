@@ -1,0 +1,9 @@
+<komply>
+  <rules>
+    <max-line-length value="180" tier="docs-maintainability" weight="2" />
+    <max-lines value="4000" tier="docs-maintainability" weight="4" />
+    <forbid-trailing-whitespace tier="docs-style" weight="2" />
+    <require-final-newline tier="docs-style" weight="1" />
+    <forbid-regex pattern="\b(TODO|FIXME)\b" tier="docs-delivery" weight="3" include-strings="false" />
+  </rules>
+</komply>

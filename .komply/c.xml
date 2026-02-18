@@ -1,0 +1,18 @@
+<komply match="filename" pattern="*">
+  <filters>
+    <include glob="*.c" />
+    <include glob="**/*.c" />
+    <include glob="*.h" />
+    <include glob="**/*.h" />
+  </filters>
+  <rules>
+    <max-line-length value="120" tier="maintainability" weight="2" />
+    <max-lines value="2000" tier="maintainability" weight="5" />
+    <max-function-lines value="120" tier="maintainability" weight="8" />
+    <forbid-trailing-whitespace tier="style" weight="2" />
+    <require-final-newline tier="style" weight="1" />
+
+    <forbid-regex pattern="\bgoto\b" tier="maintainability" weight="8" />
+    <forbid-regex pattern="\b(TODO|FIXME)\b" tier="delivery" weight="4" include-strings="false" />
+  </rules>
+</komply>

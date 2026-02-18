@@ -1,0 +1,15 @@
+<komply match="filename" pattern="[Rr][Ee][Aa][Dd][Mm][Ee]*.md">
+  <rules>
+    <max-line-length value="180" tier="docs-maintainability" weight="2" />
+    <max-lines value="2500" tier="docs-maintainability" weight="3" />
+    <forbid-trailing-whitespace tier="docs-style" weight="2" />
+    <require-final-newline tier="docs-style" weight="1" />
+    <require-regex
+      pattern="^#\s+\S+"
+      flags="m"
+      tier="docs-quality"
+      weight="4"
+      message="README should contain at least one H1 heading."
+    />
+  </rules>
+</komply>
