@@ -1,0 +1,21 @@
+<komply match="extension" pattern=".py">
+  <filters>
+    <exclude glob=".venv/**" />
+    <exclude glob="venv/**" />
+    <exclude glob="**/__pycache__/**" />
+    <exclude glob=".mypy_cache/**" />
+    <exclude glob="build/**" />
+    <exclude glob="dist/**" />
+  </filters>
+  <rules>
+    <max-line-length value="120" tier="maintainability" weight="2" />
+    <max-lines value="1500" tier="maintainability" weight="4" />
+    <forbid-trailing-whitespace tier="style" weight="2" />
+    <require-final-newline tier="style" weight="1" />
+
+    <forbid-regex pattern="\b(TODO|FIXME)\b" tier="delivery" weight="4" include-strings="false" />
+    <forbid-regex pattern="^\s*from\s+\S+\s+import\s+\*" flags="m" tier="safety" weight="6" />
+    <forbid-regex pattern="^\s*except\s*:\s*$" flags="m" tier="reliability" weight="8" />
+    <forbid-regex pattern="\bpdb\.set_trace\s*\(" tier="debug-artifacts" weight="6" />
+  </rules>
+</komply>

@@ -15,7 +15,7 @@
 
     <forbid-regex pattern="\bNULL\b" tier="modern-cpp" weight="4" message="Use nullptr instead of NULL." />
     <forbid-regex pattern="\bgoto\b" tier="maintainability" weight="8" />
-    <forbid-regex pattern="\b(TODO|FIXME)\b" tier="delivery" weight="5" />
+    <forbid-regex pattern="\b(TODO|FIXME)\b" tier="delivery" weight="5" include-strings="false" />
     <forbid-regex pattern="\b(new|delete)\b" tier="memory-safety" weight="7" />
   </rules>
 </komply>

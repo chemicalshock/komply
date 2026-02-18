@@ -239,6 +239,40 @@ class TestMainUnit(unittest.TestCase):
         self.assertIn("[forbid-trailing-whitespace] [tier:style] [level:weighted:2] (3 hit(s))", text)
         self.assertIn("lines: 1-2, 4", text)
 
+    def test_forbid_regex_can_ignore_string_literals(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            (repo_root / ".komply").mkdir()
+            (repo_root / ".komply" / "cpp.xml").write_text(
+                (
+                    "<komply>\n"
+                    "  <rules>\n"
+                    "    <forbid-regex pattern=\"\\b(TODO|FIXME)\\b\" "
+                    "include-strings=\"false\" tier=\"delivery\" weight=\"5\" />\n"
+                    "  </rules>\n"
+                    "</komply>\n"
+                ),
+                encoding="utf-8",
+            )
+            (repo_root / "sample.cpp").write_text(
+                (
+                    "const char* msg = \"TODO in string\";\n"
+                    "// TODO in comment\n"
+                ),
+                encoding="utf-8",
+            )
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main.main(["--repo-root", str(repo_root)])
+
+        self.assertEqual(code, 0)
+        text = output.getvalue()
+        self.assertIn("- sample.cpp", text)
+        self.assertIn("[forbid-regex] [tier:delivery] [level:weighted:5] (1 hit(s))", text)
+        self.assertIn("lines: 2", text)
+        self.assertNotIn("lines: 1", text)
+
     def test_blocking_violation_returns_fail_fast_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)

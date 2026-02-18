@@ -32,6 +32,10 @@ All rules also support optional quality attributes:
 - `blocking="true|false"` marks a rule as hard-fail
 - `weight="N"` penalty points for non-blocking findings
 
+Regex rules also support:
+
+- `include-strings="true|false"` (default `true`) to ignore matches inside string literals
+
 ## Policy Format
 
 ```xml

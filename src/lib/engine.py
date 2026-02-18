@@ -25,6 +25,7 @@ class Rule:
     close_token: str = "}"
     start_regex: re.Pattern[str] | None = None
     exclude_regex: re.Pattern[str] | None = None
+    include_strings: bool = True
 
 
 @dataclass(frozen=True)
@@ -297,6 +298,9 @@ def parse_rules(config_path: Path, rules_parent: ET.Element) -> list[Rule]:
                     tier=tier,
                     blocking=blocking,
                     weight=weight,
+                    include_strings=parse_bool_attr(
+                        config_path, node, "include-strings", default=True
+                    ),
                 )
             )
             continue
@@ -311,6 +315,9 @@ def parse_rules(config_path: Path, rules_parent: ET.Element) -> list[Rule]:
                     tier=tier,
                     blocking=blocking,
                     weight=weight,
+                    include_strings=parse_bool_attr(
+                        config_path, node, "include-strings", default=True
+                    ),
                 )
             )
             continue
@@ -495,6 +502,7 @@ def evaluate_file(path: Path, policy: Policy) -> list[Violation]:
     lines = text.splitlines()
     violations: list[Violation] = []
     function_spans: list[tuple[int, int]] | None = None
+    text_without_strings: str | None = None
 
     for rule in policy.rules:
         if rule.kind == "max-line-length":
@@ -553,7 +561,15 @@ def evaluate_file(path: Path, policy: Policy) -> list[Violation]:
         if rule.kind == "forbid-regex":
             assert rule.regex is not None
             assert rule.pattern is not None
-            for match in rule.regex.finditer(text):
+            haystack = text
+            if not rule.include_strings:
+                if text_without_strings is None:
+                    text_without_strings = mask_non_code(
+                        text, mask_comments=False, mask_strings=True
+                    )
+                haystack = text_without_strings
+
+            for match in rule.regex.finditer(haystack):
                 violations.append(
                     make_violation(
                         path=path,
@@ -567,7 +583,15 @@ def evaluate_file(path: Path, policy: Policy) -> list[Violation]:
         if rule.kind == "require-regex":
             assert rule.regex is not None
             assert rule.pattern is not None
-            if not rule.regex.search(text):
+            haystack = text
+            if not rule.include_strings:
+                if text_without_strings is None:
+                    text_without_strings = mask_non_code(
+                        text, mask_comments=False, mask_strings=True
+                    )
+                haystack = text_without_strings
+
+            if not rule.regex.search(haystack):
                 violations.append(
                     make_violation(
                         path=path,
@@ -633,7 +657,9 @@ def find_function_spans(
     return spans
 
 
-def mask_non_code(text: str) -> str:
+def mask_non_code(
+    text: str, mask_comments: bool = True, mask_strings: bool = True
+) -> str:
     out: list[str] = []
     in_line_comment = False
     in_block_comment = False
@@ -652,17 +678,23 @@ def mask_non_code(text: str) -> str:
                 in_line_comment = False
                 out.append("\n")
             else:
-                out.append(" ")
+                out.append(" " if mask_comments else char)
             i += 1
             continue
 
         if in_block_comment:
             if char == "*" and nxt == "/":
                 in_block_comment = False
-                out.extend((" ", " "))
+                if mask_comments:
+                    out.extend((" ", " "))
+                else:
+                    out.extend((char, nxt))
                 i += 2
                 continue
-            out.append("\n" if char == "\n" else " ")
+            if char == "\n":
+                out.append("\n")
+            else:
+                out.append(" " if mask_comments else char)
             i += 1
             continue
 
@@ -679,7 +711,7 @@ def mask_non_code(text: str) -> str:
                 escaped = True
             elif char == "'":
                 in_single_quote = False
-            out.append(" ")
+            out.append(" " if mask_strings else char)
             i += 1
             continue
 
@@ -696,7 +728,7 @@ def mask_non_code(text: str) -> str:
                 escaped = True
             elif char == '"':
                 in_double_quote = False
-            out.append(" ")
+            out.append(" " if mask_strings else char)
             i += 1
             continue
 
@@ -711,13 +743,19 @@ def mask_non_code(text: str) -> str:
             i += 2
             continue
         if char == "'":
-            in_single_quote = True
-            out.append(" ")
+            if mask_strings:
+                in_single_quote = True
+                out.append(" ")
+            else:
+                out.append(char)
             i += 1
             continue
         if char == '"':
-            in_double_quote = True
-            out.append(" ")
+            if mask_strings:
+                in_double_quote = True
+                out.append(" ")
+            else:
+                out.append(char)
             i += 1
             continue
 
