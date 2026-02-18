@@ -11,7 +11,7 @@ import main
 
 
 class TestMainUnit(unittest.TestCase):
-    def test_reports_violations_for_matching_extension(self) -> None:
+    def test_weighted_violations_produce_pass_f_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
             (repo_root / ".komply").mkdir()
@@ -19,8 +19,8 @@ class TestMainUnit(unittest.TestCase):
                 (
                     "<komply>\n"
                     "  <rules>\n"
-                    "    <max-line-length value=\"20\" />\n"
-                    "    <forbid-trailing-whitespace />\n"
+                    "    <max-line-length value=\"20\" tier=\"quality\" weight=\"60\" />\n"
+                    "    <forbid-trailing-whitespace tier=\"style\" weight=\"50\" />\n"
                     "  </rules>\n"
                     "</komply>\n"
                 ),
@@ -35,10 +35,12 @@ class TestMainUnit(unittest.TestCase):
             with redirect_stdout(output):
                 code = main.main(["--repo-root", str(repo_root)])
 
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 0)
         text = output.getvalue()
         self.assertIn("bad.cpp:1 [max-line-length]", text)
-        self.assertIn("bad.cpp:1 [forbid-trailing-whitespace]", text)
+        self.assertIn("[tier:quality] [level:weighted:60]", text)
+        self.assertIn("[tier:style] [level:weighted:50]", text)
+        self.assertIn("Quality: PF", text)
 
     def test_honors_include_and_exclude_filters(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -52,7 +54,7 @@ class TestMainUnit(unittest.TestCase):
                     "    <exclude glob=\"src/generated/*\" />\n"
                     "  </filters>\n"
                     "  <rules>\n"
-                    "    <max-lines value=\"1\" />\n"
+                    "    <max-lines value=\"1\" tier=\"scope\" weight=\"8\" />\n"
                     "  </rules>\n"
                     "</komply>\n"
                 ),
@@ -70,10 +72,39 @@ class TestMainUnit(unittest.TestCase):
             with redirect_stdout(output):
                 code = main.main(["--repo-root", str(repo_root)])
 
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 0)
         text = output.getvalue()
         self.assertIn("src/one.cpp [max-lines]", text)
         self.assertNotIn("ignored.cpp", text)
+
+    def test_blocking_violation_returns_fail_fast_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            (repo_root / ".komply").mkdir()
+            (repo_root / ".komply" / "cpp.xml").write_text(
+                (
+                    "<komply>\n"
+                    "  <rules>\n"
+                    "    <forbid-regex pattern=\"\\busing\\s+namespace\\s+std\\b\" "
+                    "tier=\"critical\" blocking=\"true\" />\n"
+                    "  </rules>\n"
+                    "</komply>\n"
+                ),
+                encoding="utf-8",
+            )
+            (repo_root / "bad.cpp").write_text(
+                "using namespace std;\n",
+                encoding="utf-8",
+            )
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main.main(["--repo-root", str(repo_root)])
+
+        self.assertEqual(code, 1)
+        text = output.getvalue()
+        self.assertIn("[tier:critical] [level:blocking]", text)
+        self.assertIn("Quality: FF", text)
 
     def test_returns_config_error_for_invalid_rule(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -116,7 +147,7 @@ class TestMainUnit(unittest.TestCase):
                 (
                     "<komply>\n"
                     "  <rules>\n"
-                    "    <max-line-length value=\"10\" />\n"
+                    "    <max-line-length value=\"10\" tier=\"local\" weight=\"40\" />\n"
                     "  </rules>\n"
                     "</komply>\n"
                 ),
@@ -126,7 +157,7 @@ class TestMainUnit(unittest.TestCase):
                 (
                     "<komply>\n"
                     "  <rules>\n"
-                    "    <max-line-length value=\"120\" />\n"
+                    "    <max-line-length value=\"120\" tier=\"tool\" weight=\"1\" />\n"
                     "  </rules>\n"
                     "</komply>\n"
                 ),
@@ -138,8 +169,10 @@ class TestMainUnit(unittest.TestCase):
                 with redirect_stdout(output):
                     code = main.main(["--repo-root", str(repo_root)])
 
-        self.assertEqual(code, 1)
-        self.assertIn("src/sample.cpp:1 [max-line-length]", output.getvalue())
+        self.assertEqual(code, 0)
+        text = output.getvalue()
+        self.assertIn("[tier:local]", text)
+        self.assertNotIn("[tier:tool]", text)
 
     def test_falls_back_to_tool_config_when_local_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as repo_tmp, tempfile.TemporaryDirectory() as tool_tmp:
@@ -156,7 +189,7 @@ class TestMainUnit(unittest.TestCase):
                 (
                     "<komply>\n"
                     "  <rules>\n"
-                    "    <max-line-length value=\"120\" />\n"
+                    "    <max-line-length value=\"10\" tier=\"tool\" weight=\"70\" />\n"
                     "  </rules>\n"
                     "</komply>\n"
                 ),
@@ -169,7 +202,9 @@ class TestMainUnit(unittest.TestCase):
                     code = main.main(["--repo-root", str(repo_root)])
 
         self.assertEqual(code, 0)
-        self.assertIn("cpp: 1 file(s) matched", output.getvalue())
+        text = output.getvalue()
+        self.assertIn("[tier:tool]", text)
+        self.assertIn("cpp: 1 file(s) matched", text)
 
 
 if __name__ == "__main__":

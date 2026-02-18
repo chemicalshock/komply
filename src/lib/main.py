@@ -71,10 +71,19 @@ def render_report(repo_root: Path, report: engine.ScanReport, quiet: bool = Fals
         for violation in report.violations:
             rel_path = violation.path.relative_to(repo_root).as_posix()
             line_suffix = f":{violation.line}" if violation.line is not None else ""
+            level = "blocking" if violation.blocking else f"weighted:{violation.weight}"
             print(
-                f"- {rel_path}{line_suffix} [{violation.rule}] {violation.message}"
+                f"- {rel_path}{line_suffix} [{violation.rule}] "
+                f"[tier:{violation.tier}] [level:{level}] {violation.message}"
             )
 
+    print(
+        f"Quality: {report.quality_status} "
+        f"(grade={report.quality_grade}, score={report.quality_score}, "
+        f"penalty={report.weighted_penalty}, "
+        f"blocking={report.blocking_violations}, "
+        f"weighted={report.non_blocking_violations})"
+    )
     print(
         f"Summary: {total_files} file(s) checked, "
         f"{total_violations} violation(s), {files_with_violations} file(s) failing"
@@ -94,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     render_report(repo_root, report, quiet=args.quiet)
-    if report.violations:
+    if report.quality_status == "FF":
         return 1
     return 0
 

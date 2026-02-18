@@ -18,6 +18,9 @@ class Rule:
     pattern: str | None = None
     regex: re.Pattern[str] | None = None
     message: str | None = None
+    tier: str = "default"
+    blocking: bool = False
+    weight: int = 5
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,9 @@ class Violation:
     rule: str
     message: str
     line: int | None = None
+    tier: str = "default"
+    blocking: bool = False
+    weight: int = 0
 
 
 @dataclass(frozen=True)
@@ -43,6 +49,12 @@ class ScanReport:
     policies_loaded: int
     files_by_policy: dict[str, int]
     violations: list[Violation]
+    blocking_violations: int
+    non_blocking_violations: int
+    weighted_penalty: int
+    quality_score: int
+    quality_grade: str
+    quality_status: str
 
 
 SUPPORTED_RULES = (
@@ -66,13 +78,27 @@ def scan_repository(repo_root: Path, config_dir: Path) -> ScanReport:
         for target in targets:
             violations.extend(evaluate_file(target, policy))
 
+    sorted_violations = sorted(
+        violations,
+        key=lambda item: (item.path.as_posix(), item.line or 0, item.rule),
+    )
+    blocking_count = sum(1 for item in sorted_violations if item.blocking)
+    non_blocking_count = len(sorted_violations) - blocking_count
+    weighted_penalty = sum(item.weight for item in sorted_violations if not item.blocking)
+    quality_score = max(0, 100 - weighted_penalty)
+    quality_grade = score_to_grade(quality_score)
+    quality_status = "FF" if blocking_count else f"P{quality_grade}"
+
     return ScanReport(
         policies_loaded=len(policies),
         files_by_policy=files_by_policy,
-        violations=sorted(
-            violations,
-            key=lambda item: (item.path.as_posix(), item.line or 0, item.rule),
-        ),
+        violations=sorted_violations,
+        blocking_violations=blocking_count,
+        non_blocking_violations=non_blocking_count,
+        weighted_penalty=weighted_penalty,
+        quality_score=quality_score,
+        quality_grade=quality_grade,
+        quality_status=quality_status,
     )
 
 
@@ -154,14 +180,34 @@ def parse_rules(config_path: Path, rules_parent: ET.Element) -> list[Rule]:
     for node in rules_parent:
         kind = node.tag
         message = node.attrib.get("message")
+        tier = parse_tier(node)
+        blocking = parse_bool_attr(config_path, node, "blocking", default=False)
+        default_weight = 0 if blocking else 5
+        weight = parse_non_negative_int_attr(
+            config_path, node, "weight", default=default_weight
+        )
         if kind == "max-line-length":
             rules.append(
-                Rule(kind=kind, value=parse_positive_int(config_path, node, "value"), message=message)
+                Rule(
+                    kind=kind,
+                    value=parse_positive_int(config_path, node, "value"),
+                    message=message,
+                    tier=tier,
+                    blocking=blocking,
+                    weight=weight,
+                )
             )
             continue
         if kind == "max-lines":
             rules.append(
-                Rule(kind=kind, value=parse_positive_int(config_path, node, "value"), message=message)
+                Rule(
+                    kind=kind,
+                    value=parse_positive_int(config_path, node, "value"),
+                    message=message,
+                    tier=tier,
+                    blocking=blocking,
+                    weight=weight,
+                )
             )
             continue
         if kind == "forbid-regex":
@@ -172,6 +218,9 @@ def parse_rules(config_path: Path, rules_parent: ET.Element) -> list[Rule]:
                     pattern=pattern,
                     regex=compile_regex(config_path, pattern, node.attrib.get("flags", "")),
                     message=message,
+                    tier=tier,
+                    blocking=blocking,
+                    weight=weight,
                 )
             )
             continue
@@ -183,16 +232,34 @@ def parse_rules(config_path: Path, rules_parent: ET.Element) -> list[Rule]:
                     pattern=pattern,
                     regex=compile_regex(config_path, pattern, node.attrib.get("flags", "")),
                     message=message,
+                    tier=tier,
+                    blocking=blocking,
+                    weight=weight,
                 )
             )
             continue
         if kind in ("forbid-trailing-whitespace", "require-final-newline"):
-            rules.append(Rule(kind=kind, message=message))
+            rules.append(
+                Rule(
+                    kind=kind,
+                    message=message,
+                    tier=tier,
+                    blocking=blocking,
+                    weight=weight,
+                )
+            )
             continue
         raise KomplyConfigError(
             f"{config_path}: unsupported rule <{kind}>. Supported rules: {', '.join(SUPPORTED_RULES)}"
         )
     return rules
+
+
+def parse_tier(node: ET.Element) -> str:
+    tier = (node.attrib.get("tier") or "default").strip()
+    if not tier:
+        return "default"
+    return tier
 
 
 def parse_positive_int(config_path: Path, node: ET.Element, name: str) -> int:
@@ -208,6 +275,40 @@ def parse_positive_int(config_path: Path, node: ET.Element, name: str) -> int:
             f"{config_path}: <{node.tag}> attribute '{name}' must be > 0"
         )
     return value
+
+
+def parse_non_negative_int_attr(
+    config_path: Path, node: ET.Element, name: str, default: int
+) -> int:
+    raw = (node.attrib.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise KomplyConfigError(
+            f"{config_path}: <{node.tag}> attribute '{name}' must be an integer"
+        ) from exc
+    if value < 0:
+        raise KomplyConfigError(
+            f"{config_path}: <{node.tag}> attribute '{name}' must be >= 0"
+        )
+    return value
+
+
+def parse_bool_attr(
+    config_path: Path, node: ET.Element, name: str, default: bool
+) -> bool:
+    raw = (node.attrib.get(name) or "").strip().lower()
+    if not raw:
+        return default
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    raise KomplyConfigError(
+        f"{config_path}: <{node.tag}> attribute '{name}' must be a boolean"
+    )
 
 
 def require_attr(config_path: Path, node: ET.Element, name: str) -> str:
@@ -289,10 +390,10 @@ def evaluate_file(path: Path, policy: Policy) -> list[Violation]:
             for idx, line in enumerate(lines, start=1):
                 if len(line) > rule.value:
                     violations.append(
-                        Violation(
+                        make_violation(
                             path=path,
+                            rule=rule,
                             line=idx,
-                            rule=rule.kind,
                             message=rule.message
                             or f"Line length {len(line)} exceeds max {rule.value}",
                         )
@@ -304,9 +405,9 @@ def evaluate_file(path: Path, policy: Policy) -> list[Violation]:
             line_count = len(lines)
             if line_count > rule.value:
                 violations.append(
-                    Violation(
+                    make_violation(
                         path=path,
-                        rule=rule.kind,
+                        rule=rule,
                         message=rule.message
                         or f"File has {line_count} lines; max is {rule.value}",
                     )
@@ -318,10 +419,10 @@ def evaluate_file(path: Path, policy: Policy) -> list[Violation]:
             assert rule.pattern is not None
             for match in rule.regex.finditer(text):
                 violations.append(
-                    Violation(
+                    make_violation(
                         path=path,
+                        rule=rule,
                         line=line_number(text, match.start()),
-                        rule=rule.kind,
                         message=rule.message or f"Forbidden pattern matched: {rule.pattern}",
                     )
                 )
@@ -332,9 +433,9 @@ def evaluate_file(path: Path, policy: Policy) -> list[Violation]:
             assert rule.pattern is not None
             if not rule.regex.search(text):
                 violations.append(
-                    Violation(
+                    make_violation(
                         path=path,
-                        rule=rule.kind,
+                        rule=rule,
                         message=rule.message or f"Required pattern missing: {rule.pattern}",
                     )
                 )
@@ -344,10 +445,10 @@ def evaluate_file(path: Path, policy: Policy) -> list[Violation]:
             for idx, line in enumerate(lines, start=1):
                 if line != line.rstrip(" \t"):
                     violations.append(
-                        Violation(
+                        make_violation(
                             path=path,
+                            rule=rule,
                             line=idx,
-                            rule=rule.kind,
                             message=rule.message or "Trailing whitespace is not allowed",
                         )
                     )
@@ -356,10 +457,10 @@ def evaluate_file(path: Path, policy: Policy) -> list[Violation]:
         if rule.kind == "require-final-newline":
             if text and not text.endswith("\n"):
                 violations.append(
-                    Violation(
+                    make_violation(
                         path=path,
+                        rule=rule,
                         line=max(1, len(lines)),
-                        rule=rule.kind,
                         message=rule.message or "File must end with a newline",
                     )
                 )
@@ -370,3 +471,29 @@ def evaluate_file(path: Path, policy: Policy) -> list[Violation]:
 
 def line_number(text: str, char_offset: int) -> int:
     return text.count("\n", 0, char_offset) + 1
+
+
+def score_to_grade(score: int) -> str:
+    if score >= 90:
+        return "A"
+    if score >= 80:
+        return "B"
+    if score >= 70:
+        return "C"
+    if score >= 60:
+        return "D"
+    if score >= 50:
+        return "E"
+    return "F"
+
+
+def make_violation(path: Path, rule: Rule, message: str, line: int | None = None) -> Violation:
+    return Violation(
+        path=path,
+        line=line,
+        rule=rule.kind,
+        message=message,
+        tier=rule.tier,
+        blocking=rule.blocking,
+        weight=rule.weight,
+    )

@@ -1,8 +1,20 @@
 <komply>
   <rules>
-    <max-line-length value="120" />
-    <forbid-regex pattern="\busing\s+namespace\s+std\b" />
-    <forbid-trailing-whitespace />
-    <require-final-newline />
+    <max-line-length value="120" tier="maintainability" weight="2" />
+    <max-lines value="2000" tier="maintainability" weight="6" />
+    <forbid-trailing-whitespace tier="style" weight="2" />
+    <require-final-newline tier="style" weight="1" />
+
+    <forbid-regex
+      pattern="\busing\s+namespace\s+std\b"
+      tier="critical"
+      blocking="true"
+      message="Do not use 'using namespace std' in production code."
+    />
+
+    <forbid-regex pattern="\bNULL\b" tier="modern-cpp" weight="4" message="Use nullptr instead of NULL." />
+    <forbid-regex pattern="\bgoto\b" tier="maintainability" weight="8" />
+    <forbid-regex pattern="\b(TODO|FIXME)\b" tier="delivery" weight="5" />
+    <forbid-regex pattern="\b(new|delete)\b" tier="memory-safety" weight="7" />
   </rules>
 </komply>

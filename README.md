@@ -19,6 +19,12 @@ Example:
 - `forbid-trailing-whitespace`
 - `require-final-newline`
 
+All rules also support optional quality attributes:
+
+- `tier="..."` groups findings by area (`critical`, `style`, etc.)
+- `blocking="true|false"` marks a rule as hard-fail
+- `weight="N"` penalty points for non-blocking findings
+
 ## Policy Format
 
 ```xml
@@ -28,10 +34,11 @@ Example:
     <exclude glob="src/generated/*" />
   </filters>
   <rules>
-    <max-line-length value="120" />
-    <forbid-regex pattern="\bTODO\b" />
-    <forbid-trailing-whitespace />
-    <require-final-newline />
+    <max-line-length value="120" tier="maintainability" weight="2" />
+    <forbid-regex pattern="\busing\s+namespace\s+std\b" tier="critical" blocking="true" />
+    <forbid-regex pattern="\bTODO\b" tier="delivery" weight="5" />
+    <forbid-trailing-whitespace tier="style" weight="2" />
+    <require-final-newline tier="style" weight="1" />
   </rules>
 </komply>
 ```
@@ -45,6 +52,18 @@ Config directory resolution order:
 - `<current working directory>/.komply` when present
 - `<komply install root>/.komply` as fallback
 
+## Quality Rating
+
+Komply computes a quality score and status for each run:
+
+- Start score at `100`
+- Subtract `weight` for each non-blocking violation
+- Clamp score to `0..100`
+- Grade mapping: `A>=90`, `B>=80`, `C>=70`, `D>=60`, `E>=50`, else `F`
+- Status:
+  - `FF`: one or more blocking violations (absolute fail)
+  - `PA`..`PF`: no blocking violations, pass with computed grade
+
 ## Usage
 
 ```bash
@@ -55,8 +74,8 @@ Config directory resolution order:
 
 Exit codes:
 
-- `0`: no violations
-- `1`: violations found
+- `0`: no blocking violations (`PA`..`PF`)
+- `1`: blocking violation found (`FF`)
 - `2`: configuration/runtime error
 
 ## Development
