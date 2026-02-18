@@ -37,9 +37,11 @@ class TestMainUnit(unittest.TestCase):
 
         self.assertEqual(code, 0)
         text = output.getvalue()
-        self.assertIn("bad.cpp:1 [max-line-length]", text)
+        self.assertIn("- bad.cpp", text)
+        self.assertIn("[max-line-length] [tier:quality] [level:weighted:60]", text)
         self.assertIn("[tier:quality] [level:weighted:60]", text)
         self.assertIn("[tier:style] [level:weighted:50]", text)
+        self.assertIn("lines: 1", text)
         self.assertIn("Quality: PF", text)
 
     def test_honors_include_and_exclude_filters(self) -> None:
@@ -74,7 +76,8 @@ class TestMainUnit(unittest.TestCase):
 
         self.assertEqual(code, 0)
         text = output.getvalue()
-        self.assertIn("src/one.cpp [max-lines]", text)
+        self.assertIn("- src/one.cpp", text)
+        self.assertIn("[max-lines] [tier:scope] [level:weighted:8]", text)
         self.assertNotIn("ignored.cpp", text)
 
     def test_max_function_lines_detects_large_function_body(self) -> None:
@@ -109,7 +112,8 @@ class TestMainUnit(unittest.TestCase):
 
         self.assertEqual(code, 0)
         text = output.getvalue()
-        self.assertIn("sample.cpp:1 [max-function-lines]", text)
+        self.assertIn("- sample.cpp", text)
+        self.assertIn("[max-function-lines] [tier:maintainability] [level:weighted:9]", text)
         self.assertIn("[tier:maintainability] [level:weighted:9]", text)
         self.assertIn("Function body has 6 lines; max is 3", text)
 
@@ -148,9 +152,39 @@ class TestMainUnit(unittest.TestCase):
 
         self.assertEqual(code, 0)
         text = output.getvalue()
-        self.assertIn("sample.cpp:1 [max-function-lines]", text)
+        self.assertIn("- sample.cpp", text)
+        self.assertIn("[max-function-lines] [tier:dsl] [level:weighted:12]", text)
         self.assertIn("[tier:dsl] [level:weighted:12]", text)
         self.assertIn("Function body has 6 lines; max is 3", text)
+
+    def test_groups_repeated_line_violations_with_line_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            (repo_root / ".komply").mkdir()
+            (repo_root / ".komply" / "cpp.xml").write_text(
+                (
+                    "<komply>\n"
+                    "  <rules>\n"
+                    "    <forbid-trailing-whitespace tier=\"style\" weight=\"2\" />\n"
+                    "  </rules>\n"
+                    "</komply>\n"
+                ),
+                encoding="utf-8",
+            )
+            (repo_root / "sample.cpp").write_text(
+                "line1 \nline2 \nline3\nline4 \n",
+                encoding="utf-8",
+            )
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main.main(["--repo-root", str(repo_root)])
+
+        self.assertEqual(code, 0)
+        text = output.getvalue()
+        self.assertIn("- sample.cpp", text)
+        self.assertIn("[forbid-trailing-whitespace] [tier:style] [level:weighted:2] (3 hit(s))", text)
+        self.assertIn("lines: 1-2, 4", text)
 
     def test_blocking_violation_returns_fail_fast_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
