@@ -1,0 +1,17 @@
+<komply match="filename" pattern="*">
+  <filters>
+    <include glob="Makefile" />
+    <include glob="**/Makefile" />
+    <include glob="makefile" />
+    <include glob="**/makefile" />
+    <include glob="*.mk" />
+    <include glob="**/*.mk" />
+  </filters>
+  <rules>
+    <max-line-length value="160" tier="build-maintainability" weight="2" />
+    <max-lines value="1200" tier="build-maintainability" weight="4" />
+    <forbid-trailing-whitespace tier="build-style" weight="2" />
+    <require-final-newline tier="build-style" weight="1" />
+    <forbid-regex pattern="\b(TODO|FIXME)\b" tier="build-delivery" weight="3" />
+  </rules>
+</komply>
