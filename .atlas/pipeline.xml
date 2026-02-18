@@ -37,7 +37,7 @@
         <cmd>${ATLAS_QUALITY_CMD:-python3 -m compileall -q src}</cmd>
       </step>
       <step id="komply" timeout="5m" cwd=".">
-        <cmd>${ATLAS_KOMPLY_CMD:-./komply}</cmd>
+        <exec>komply</exec>
       </step>
     </task>
   </tasks>
