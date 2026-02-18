@@ -1,0 +1,42 @@
+name: ATLAS
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  atlas:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Project
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Checkout ATLAS
+        uses: actions/checkout@v4
+        with:
+          repository: atlas/atlas-pipeline
+          ref: master
+          path: atlas-pipeline
+
+      - name: Run ATLAS
+        run: |
+          set -eu
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            ATLAS_TRIGGER="pr"
+          else
+            ATLAS_TRIGGER="push"
+          fi
+
+          atlas-pipeline/atlas validate
+          atlas-pipeline/atlas run --trigger "$ATLAS_TRIGGER"
+
+      - name: Upload ATLAS output
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: atlas-output-${{ github.run_id }}
+          path: bld/atlas/**
+          if-no-files-found: warn

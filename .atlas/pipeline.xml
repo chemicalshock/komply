@@ -1,0 +1,42 @@
+<atlas version="1">
+
+  <meta>
+    <name>atlas-pipeline</name>
+    <default trigger="push"/>
+  </meta>
+
+  <triggers>
+    <trigger name="pr">
+      <run task="unit"/>
+      <run task="system"/>
+      <run task="codequality"/>
+    </trigger>
+
+    <trigger name="push">
+      <run task="unit"/>
+      <run task="system"/>
+      <run task="codequality"/>
+    </trigger>
+  </triggers>
+
+  <tasks>
+    <task id="unit">
+      <step id="unit" timeout="15m" cwd=".">
+        <cmd>${ATLAS_UNIT_CMD:-make ut}</cmd>
+      </step>
+    </task>
+
+    <task id="system">
+      <step id="system" timeout="15m" cwd=".">
+        <cmd>${ATLAS_SYSTEM_CMD:-make sy}</cmd>
+      </step>
+    </task>
+
+    <task id="codequality">
+      <step id="quality" timeout="5m" cwd=".">
+        <cmd>${ATLAS_QUALITY_CMD:-python3 -m compileall -q src}</cmd>
+      </step>
+    </task>
+  </tasks>
+
+</atlas>

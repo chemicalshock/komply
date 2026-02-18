@@ -1,0 +1,56 @@
+#!/bin/sh
+# -------------------------------------------------------------
+#
+# entry point
+#
+# -------------------------------------------------------------
+
+set -eu
+
+# resolve script dir (works even if called via symlink in most cases)
+SCRIPT_PATH="$0"
+
+# If readlink exists, try to resolve symlinks (best-effort).
+if command -v readlink >/dev/null 2>&1; then
+  # Busybox readlink may not support -f; do it safely.
+  RESOLVED="$(readlink "$SCRIPT_PATH" 2>/dev/null || true)"
+  if [ -n "$RESOLVED" ]; then
+    case "$RESOLVED" in
+      /*) SCRIPT_PATH="$RESOLVED" ;;
+      *)  SCRIPT_PATH="$(dirname "$SCRIPT_PATH")/$RESOLVED" ;;
+    esac
+  fi
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# pick python
+PYTHON_BIN="${ALT_PYTHON:-}"
+
+if [ -z "$PYTHON_BIN" ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="python"
+  else
+    echo "mytool: error: python not found (need python3). Set ALT_PYTHON." >&2
+    exit 3
+  fi
+fi
+
+# ensure package exists
+if [ ! -f "$REPO_ROOT/src/lib/main.py" ]; then
+  echo "mytool: error: missing src/lib/main.py (are you in the repo?)" >&2
+  exit 3
+fi
+
+# make sure Python can import the package from this repo
+if [ -n "${PYTHONPATH:-}" ]; then
+  export PYTHONPATH="$REPO_ROOT/src/lib:$PYTHONPATH"
+else
+  export PYTHONPATH="$REPO_ROOT/src/lib"
+fi
+
+# run
+exec "$PYTHON_BIN" -m main --repo-root "$REPO_ROOT" "$@"
