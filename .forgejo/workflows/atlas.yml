@@ -30,8 +30,17 @@ jobs:
             ATLAS_TRIGGER="push"
           fi
 
-          atlas-pipeline/atlas validate
-          atlas-pipeline/atlas run --trigger "$ATLAS_TRIGGER"
+          ATLAS_LIB="$PWD/atlas-pipeline/src/lib"
+          TARGET_REPO_ROOT="$PWD"
+
+          if [ -n "${PYTHONPATH:-}" ]; then
+            export PYTHONPATH="$ATLAS_LIB:$PYTHONPATH"
+          else
+            export PYTHONPATH="$ATLAS_LIB"
+          fi
+
+          python3 -m atlas.main --repo-root "$TARGET_REPO_ROOT" validate
+          python3 -m atlas.main --repo-root "$TARGET_REPO_ROOT" run --trigger "$ATLAS_TRIGGER"
 
       - name: Upload ATLAS output
         if: always()
