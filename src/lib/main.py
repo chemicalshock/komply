@@ -1,33 +1,101 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
+
+import engine
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="mytool",
-        description="Simple starter CLI for a Python project template.",
+        prog="komply",
+        description="Run XML-defined compliance checks on source files.",
     )
     parser.add_argument(
         "--repo-root",
         type=Path,
         default=None,
-        help="Path to the repository root (set by shell launcher).",
+        help="Path to the repository root.",
     )
     parser.add_argument(
-        "--name",
-        default="world",
-        help="Name to greet.",
+        "--config-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directory containing XML policies. "
+            "Default: use local .komply if present, else tool .komply."
+        ),
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Print only the final summary and violations.",
     )
     return parser
 
 
+def resolve_config_dir(repo_root: Path, config_dir_arg: Path | None) -> Path:
+    if config_dir_arg is not None:
+        if config_dir_arg.is_absolute():
+            return config_dir_arg.resolve()
+        return (repo_root / config_dir_arg).resolve()
+
+    local_config_dir = (repo_root / ".komply").resolve()
+    if local_config_dir.is_dir():
+        return local_config_dir
+
+    tool_root = os.environ.get("KOMPLY_TOOL_ROOT")
+    if tool_root:
+        tool_config_dir = (Path(tool_root) / ".komply").resolve()
+        if tool_config_dir.is_dir():
+            return tool_config_dir
+        return tool_config_dir
+
+    return local_config_dir
+
+
+def render_report(repo_root: Path, report: engine.ScanReport, quiet: bool = False) -> None:
+    total_files = sum(report.files_by_policy.values())
+    total_violations = len(report.violations)
+    files_with_violations = len({item.path for item in report.violations})
+
+    if not quiet:
+        print(f"Loaded {report.policies_loaded} policy file(s)")
+        for policy_name, file_count in sorted(report.files_by_policy.items()):
+            print(f"- {policy_name}: {file_count} file(s) matched")
+
+    if total_violations:
+        print("Violations:")
+        for violation in report.violations:
+            rel_path = violation.path.relative_to(repo_root).as_posix()
+            line_suffix = f":{violation.line}" if violation.line is not None else ""
+            print(
+                f"- {rel_path}{line_suffix} [{violation.rule}] {violation.message}"
+            )
+
+    print(
+        f"Summary: {total_files} file(s) checked, "
+        f"{total_violations} violation(s), {files_with_violations} file(s) failing"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(sys.argv[1:] if argv is None else argv)
-    location = f" from {args.repo_root}" if args.repo_root else ""
-    print(f"Hello, {args.name}!{location}")
+
+    repo_root = (args.repo_root or Path.cwd()).resolve()
+    config_dir = resolve_config_dir(repo_root, args.config_dir)
+
+    try:
+        report = engine.scan_repository(repo_root=repo_root, config_dir=config_dir)
+    except engine.KomplyConfigError as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        return 2
+
+    render_report(repo_root, report, quiet=args.quiet)
+    if report.violations:
+        return 1
     return 0
 
 

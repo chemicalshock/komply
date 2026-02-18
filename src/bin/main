@@ -34,14 +34,14 @@ if [ -z "$PYTHON_BIN" ]; then
   elif command -v python >/dev/null 2>&1; then
     PYTHON_BIN="python"
   else
-    echo "mytool: error: python not found (need python3). Set ALT_PYTHON." >&2
+    echo "komply: error: python not found (need python3). Set ALT_PYTHON." >&2
     exit 3
   fi
 fi
 
 # ensure package exists
 if [ ! -f "$REPO_ROOT/src/lib/main.py" ]; then
-  echo "mytool: error: missing src/lib/main.py (are you in the repo?)" >&2
+  echo "komply: error: missing src/lib/main.py (are you in the repo?)" >&2
   exit 3
 fi
 
@@ -52,5 +52,9 @@ else
   export PYTHONPATH="$REPO_ROOT/src/lib"
 fi
 
+# expose tool root for config fallback resolution
+export KOMPLY_TOOL_ROOT="$REPO_ROOT"
+
 # run
-exec "$PYTHON_BIN" -m main --repo-root "$REPO_ROOT" "$@"
+# Default scan root is the caller's current working directory.
+exec "$PYTHON_BIN" -m main "$@"

@@ -1,0 +1,8 @@
+<komply>
+  <rules>
+    <max-line-length value="120" />
+    <forbid-regex pattern="\busing\s+namespace\s+std\b" />
+    <forbid-trailing-whitespace />
+    <require-final-newline />
+  </rules>
+</komply>
