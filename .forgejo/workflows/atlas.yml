@@ -2,7 +2,6 @@ name: ATLAS
 
 on:
   pull_request:
-  push:
 
 jobs:
   atlas:

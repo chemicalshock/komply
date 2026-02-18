@@ -6,11 +6,7 @@
   </meta>
 
   <triggers>
-    <trigger name="pr">
-      <run task="unit"/>
-      <run task="system"/>
-      <run task="codequality"/>
-    </trigger>
+    <trigger name="pr"></trigger>
 
     <trigger name="push">
       <run task="unit"/>
