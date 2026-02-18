@@ -12,6 +12,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           clean: false
+          path: target-repo
 
       - name: Checkout ATLAS
         uses: actions/checkout@v4
@@ -30,8 +31,10 @@ jobs:
             ATLAS_TRIGGER="push"
           fi
 
-          ATLAS_LIB="$PWD/atlas-pipeline/src/lib"
-          TARGET_REPO_ROOT="$PWD"
+          WORKSPACE_ROOT="${{ github.workspace }}"
+          TARGET_REPO_ROOT="$WORKSPACE_ROOT/target-repo"
+          ATLAS_REPO_ROOT="$WORKSPACE_ROOT/atlas-pipeline"
+          ATLAS_LIB="$ATLAS_REPO_ROOT/src/lib"
 
           if [ -n "${PYTHONPATH:-}" ]; then
             export PYTHONPATH="$ATLAS_LIB:$PYTHONPATH"
@@ -39,13 +42,15 @@ jobs:
             export PYTHONPATH="$ATLAS_LIB"
           fi
 
-          python3 -m atlas.main --repo-root "$TARGET_REPO_ROOT" validate
-          python3 -m atlas.main --repo-root "$TARGET_REPO_ROOT" run --trigger "$ATLAS_TRIGGER"
+          cd "$TARGET_REPO_ROOT"
+
+          python3 -m atlas.main --repo-root "$ATLAS_REPO_ROOT" validate
+          python3 -m atlas.main --repo-root "$ATLAS_REPO_ROOT" run --trigger "$ATLAS_TRIGGER"
 
       - name: Upload ATLAS output
         if: always()
         uses: actions/upload-artifact@v3
         with:
           name: atlas-output-${{ github.run_id }}
-          path: bld/atlas/**
+          path: target-repo/bld/atlas/**
           if-no-files-found: warn
