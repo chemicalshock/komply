@@ -2,6 +2,7 @@
   <rules>
     <max-line-length value="120" tier="maintainability" weight="2" />
     <max-lines value="2000" tier="maintainability" weight="6" />
+    <max-function-lines value="120" tier="maintainability" weight="8" />
     <forbid-trailing-whitespace tier="style" weight="2" />
     <require-final-newline tier="style" weight="1" />
 

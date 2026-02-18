@@ -21,6 +21,10 @@ class Rule:
     tier: str = "default"
     blocking: bool = False
     weight: int = 5
+    open_token: str = "{"
+    close_token: str = "}"
+    start_regex: re.Pattern[str] | None = None
+    exclude_regex: re.Pattern[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -60,6 +64,7 @@ class ScanReport:
 SUPPORTED_RULES = (
     "max-line-length",
     "max-lines",
+    "max-function-lines",
     "forbid-regex",
     "require-regex",
     "forbid-trailing-whitespace",
@@ -210,6 +215,40 @@ def parse_rules(config_path: Path, rules_parent: ET.Element) -> list[Rule]:
                 )
             )
             continue
+        if kind == "max-function-lines":
+            open_token = node.attrib.get("open", "{")
+            close_token = node.attrib.get("close", "}")
+            if not open_token or not close_token:
+                raise KomplyConfigError(
+                    f"{config_path}: <{kind}> attributes 'open' and 'close' must be non-empty"
+                )
+            if open_token == close_token:
+                raise KomplyConfigError(
+                    f"{config_path}: <{kind}> attributes 'open' and 'close' must differ"
+                )
+            rules.append(
+                Rule(
+                    kind=kind,
+                    value=parse_positive_int(config_path, node, "value"),
+                    message=message,
+                    tier=tier,
+                    blocking=blocking,
+                    weight=weight,
+                    open_token=open_token,
+                    close_token=close_token,
+                    start_regex=compile_optional_regex(
+                        config_path,
+                        node,
+                        "start-pattern",
+                    ),
+                    exclude_regex=compile_optional_regex(
+                        config_path,
+                        node,
+                        "exclude-pattern",
+                    ),
+                )
+            )
+            continue
         if kind == "forbid-regex":
             pattern = require_attr(config_path, node, "pattern")
             rules.append(
@@ -347,6 +386,22 @@ def compile_regex(config_path: Path, pattern: str, flag_text: str) -> re.Pattern
         ) from exc
 
 
+def compile_optional_regex(
+    config_path: Path,
+    node: ET.Element,
+    attr: str,
+) -> re.Pattern[str] | None:
+    raw = (node.attrib.get(attr) or "").strip()
+    if not raw:
+        return None
+    try:
+        return re.compile(raw)
+    except re.error as exc:
+        raise KomplyConfigError(
+            f"{config_path}: invalid regex in '{attr}' ({exc})"
+        ) from exc
+
+
 def discover_targets(repo_root: Path, config_dir: Path, policy: Policy) -> list[Path]:
     config_prefix: str | None = None
     try:
@@ -383,6 +438,7 @@ def evaluate_file(path: Path, policy: Policy) -> list[Violation]:
     text = path.read_text(encoding="utf-8", errors="replace")
     lines = text.splitlines()
     violations: list[Violation] = []
+    function_spans: list[tuple[int, int]] | None = None
 
     for rule in policy.rules:
         if rule.kind == "max-line-length":
@@ -412,6 +468,30 @@ def evaluate_file(path: Path, policy: Policy) -> list[Violation]:
                         or f"File has {line_count} lines; max is {rule.value}",
                     )
                 )
+            continue
+
+        if rule.kind == "max-function-lines":
+            assert rule.value is not None
+            if function_spans is None:
+                function_spans = find_function_spans(
+                    text=text,
+                    open_token=rule.open_token,
+                    close_token=rule.close_token,
+                    start_regex=rule.start_regex,
+                    exclude_regex=rule.exclude_regex,
+                )
+            for start_line, end_line in function_spans:
+                function_lines = end_line - start_line + 1
+                if function_lines > rule.value:
+                    violations.append(
+                        make_violation(
+                            path=path,
+                            rule=rule,
+                            line=start_line,
+                            message=rule.message
+                            or f"Function body has {function_lines} lines; max is {rule.value}",
+                        )
+                    )
             continue
 
         if rule.kind == "forbid-regex":
@@ -471,6 +551,179 @@ def evaluate_file(path: Path, policy: Policy) -> list[Violation]:
 
 def line_number(text: str, char_offset: int) -> int:
     return text.count("\n", 0, char_offset) + 1
+
+
+def find_function_spans(
+    text: str,
+    open_token: str = "{",
+    close_token: str = "}",
+    start_regex: re.Pattern[str] | None = None,
+    exclude_regex: re.Pattern[str] | None = None,
+) -> list[tuple[int, int]]:
+    cleaned = mask_non_code(text)
+    block_pairs = match_token_pairs(cleaned, open_token=open_token, close_token=close_token)
+    spans: list[tuple[int, int]] = []
+    for open_idx, (open_line, close_line) in block_pairs.items():
+        header = extract_header_context(cleaned, open_idx, open_token)
+        if start_regex is not None and not start_regex.search(header):
+            continue
+        if exclude_regex is not None and exclude_regex.search(header):
+            continue
+        if start_regex is None and open_token == "{" and close_token == "}":
+            if not is_function_open_brace(cleaned, open_idx):
+                continue
+        spans.append((open_line, close_line))
+    spans.sort()
+    return spans
+
+
+def mask_non_code(text: str) -> str:
+    out: list[str] = []
+    in_line_comment = False
+    in_block_comment = False
+    in_single_quote = False
+    in_double_quote = False
+    escaped = False
+
+    i = 0
+    length = len(text)
+    while i < length:
+        char = text[i]
+        nxt = text[i + 1] if i + 1 < length else ""
+
+        if in_line_comment:
+            if char == "\n":
+                in_line_comment = False
+                out.append("\n")
+            else:
+                out.append(" ")
+            i += 1
+            continue
+
+        if in_block_comment:
+            if char == "*" and nxt == "/":
+                in_block_comment = False
+                out.extend((" ", " "))
+                i += 2
+                continue
+            out.append("\n" if char == "\n" else " ")
+            i += 1
+            continue
+
+        if in_single_quote:
+            if char == "\n":
+                in_single_quote = False
+                escaped = False
+                out.append("\n")
+                i += 1
+                continue
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == "'":
+                in_single_quote = False
+            out.append(" ")
+            i += 1
+            continue
+
+        if in_double_quote:
+            if char == "\n":
+                in_double_quote = False
+                escaped = False
+                out.append("\n")
+                i += 1
+                continue
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_double_quote = False
+            out.append(" ")
+            i += 1
+            continue
+
+        if char == "/" and nxt == "/":
+            in_line_comment = True
+            out.extend((" ", " "))
+            i += 2
+            continue
+        if char == "/" and nxt == "*":
+            in_block_comment = True
+            out.extend((" ", " "))
+            i += 2
+            continue
+        if char == "'":
+            in_single_quote = True
+            out.append(" ")
+            i += 1
+            continue
+        if char == '"':
+            in_double_quote = True
+            out.append(" ")
+            i += 1
+            continue
+
+        out.append(char)
+        i += 1
+
+    return "".join(out)
+
+
+def match_token_pairs(
+    text: str,
+    open_token: str,
+    close_token: str,
+) -> dict[int, tuple[int, int]]:
+    pairs: dict[int, tuple[int, int]] = {}
+    stack: list[tuple[int, int]] = []
+    line = 1
+    i = 0
+    text_len = len(text)
+
+    while i < text_len:
+        if text.startswith(open_token, i):
+            stack.append((i, line))
+            i += len(open_token)
+            continue
+        if text.startswith(close_token, i):
+            if stack:
+                open_index, open_line = stack.pop()
+                pairs[open_index] = (open_line, line)
+            i += len(close_token)
+            continue
+        if text[i] == "\n":
+            line += 1
+        i += 1
+    return pairs
+
+
+def is_function_open_brace(text: str, open_idx: int) -> bool:
+    header = extract_header_context(text, open_idx, "{")
+    normalized = " ".join(header.split())
+
+    if not normalized:
+        return False
+    if "(" not in normalized or ")" not in normalized:
+        return False
+    if re.search(r"\b(if|for|while|switch|catch)\s*\([^)]*\)\s*$", normalized):
+        return False
+    if re.search(r"\b(else|do|try)\s*$", normalized):
+        return False
+    if re.search(r"^\s*(class|struct|enum|namespace|union)\b", normalized):
+        return False
+    if re.search(r"\[[^\]]*\]\s*(\([^)]*\))?\s*(mutable\s*)?(noexcept\s*)?(->\s*[^\s{]+)?\s*$", normalized):
+        return False
+    return True
+
+
+def extract_header_context(text: str, open_idx: int, open_token: str) -> str:
+    context = text[max(0, open_idx - 400) : open_idx]
+    header = context.rsplit(";", maxsplit=1)[-1]
+    header = header.rsplit("}", maxsplit=1)[-1]
+    header = header.rsplit(open_token, maxsplit=1)[-1]
+    return header
 
 
 def score_to_grade(score: int) -> str:

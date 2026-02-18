@@ -14,6 +14,7 @@ Example:
 
 - `max-line-length value="N"`
 - `max-lines value="N"`
+- `max-function-lines value="N"`
 - `forbid-regex pattern="..."`
 - `require-regex pattern="..."`
 - `forbid-trailing-whitespace`
@@ -35,6 +36,7 @@ All rules also support optional quality attributes:
   </filters>
   <rules>
     <max-line-length value="120" tier="maintainability" weight="2" />
+    <max-function-lines value="120" tier="maintainability" weight="8" />
     <forbid-regex pattern="\busing\s+namespace\s+std\b" tier="critical" blocking="true" />
     <forbid-regex pattern="\bTODO\b" tier="delivery" weight="5" />
     <forbid-trailing-whitespace tier="style" weight="2" />
@@ -45,6 +47,26 @@ All rules also support optional quality attributes:
 
 `<filters>` is optional. If omitted, Komply checks every matching file extension
 recursively from repo root.
+
+`max-function-lines` uses a lightweight brace-based parser and is best-effort for C/C++ code.
+It also supports custom delimiters for other languages:
+
+- `open="..."` and `close="..."` block delimiters
+- `start-pattern="regex"` optional header matcher
+- `exclude-pattern="regex"` optional header exclusion
+
+Example:
+
+```xml
+<max-function-lines
+  value="80"
+  open="begin"
+  close="end"
+  start-pattern="\bfunction\b"
+  tier="maintainability"
+  weight="8"
+/>
+```
 
 Config directory resolution order:
 

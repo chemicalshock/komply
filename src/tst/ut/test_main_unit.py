@@ -77,6 +77,81 @@ class TestMainUnit(unittest.TestCase):
         self.assertIn("src/one.cpp [max-lines]", text)
         self.assertNotIn("ignored.cpp", text)
 
+    def test_max_function_lines_detects_large_function_body(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            (repo_root / ".komply").mkdir()
+            (repo_root / ".komply" / "cpp.xml").write_text(
+                (
+                    "<komply>\n"
+                    "  <rules>\n"
+                    "    <max-function-lines value=\"3\" tier=\"maintainability\" weight=\"9\" />\n"
+                    "  </rules>\n"
+                    "</komply>\n"
+                ),
+                encoding="utf-8",
+            )
+            (repo_root / "sample.cpp").write_text(
+                (
+                    "int helper() {\n"
+                    "  int x = 0;\n"
+                    "  x++;\n"
+                    "  x++;\n"
+                    "  return x;\n"
+                    "}\n"
+                ),
+                encoding="utf-8",
+            )
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main.main(["--repo-root", str(repo_root)])
+
+        self.assertEqual(code, 0)
+        text = output.getvalue()
+        self.assertIn("sample.cpp:1 [max-function-lines]", text)
+        self.assertIn("[tier:maintainability] [level:weighted:9]", text)
+        self.assertIn("Function body has 6 lines; max is 3", text)
+
+    def test_max_function_lines_supports_custom_open_close_tokens(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            (repo_root / ".komply").mkdir()
+            (repo_root / ".komply" / "cpp.xml").write_text(
+                (
+                    "<komply>\n"
+                    "  <rules>\n"
+                    "    <max-function-lines value=\"3\" "
+                    "open=\"BEGIN\" close=\"END\" "
+                    "start-pattern=\"\\bfunction\\b\" "
+                    "tier=\"dsl\" weight=\"12\" />\n"
+                    "  </rules>\n"
+                    "</komply>\n"
+                ),
+                encoding="utf-8",
+            )
+            (repo_root / "sample.cpp").write_text(
+                (
+                    "function alpha BEGIN\n"
+                    "  line1\n"
+                    "  line2\n"
+                    "  line3\n"
+                    "  line4\n"
+                    "END\n"
+                ),
+                encoding="utf-8",
+            )
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main.main(["--repo-root", str(repo_root)])
+
+        self.assertEqual(code, 0)
+        text = output.getvalue()
+        self.assertIn("sample.cpp:1 [max-function-lines]", text)
+        self.assertIn("[tier:dsl] [level:weighted:12]", text)
+        self.assertIn("Function body has 6 lines; max is 3", text)
+
     def test_blocking_violation_returns_fail_fast_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -129,6 +204,30 @@ class TestMainUnit(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertEqual(output.getvalue(), "")
         self.assertIn("Configuration error:", error.getvalue())
+
+    def test_returns_config_error_for_invalid_max_function_lines_tokens(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            (repo_root / ".komply").mkdir()
+            (repo_root / ".komply" / "cpp.xml").write_text(
+                (
+                    "<komply>\n"
+                    "  <rules>\n"
+                    "    <max-function-lines value=\"10\" open=\"##\" close=\"##\" />\n"
+                    "  </rules>\n"
+                    "</komply>\n"
+                ),
+                encoding="utf-8",
+            )
+
+            output = io.StringIO()
+            error = io.StringIO()
+            with redirect_stdout(output), redirect_stderr(error):
+                code = main.main(["--repo-root", str(repo_root)])
+
+        self.assertEqual(code, 2)
+        self.assertEqual(output.getvalue(), "")
+        self.assertIn("attributes 'open' and 'close' must differ", error.getvalue())
 
     def test_prioritizes_local_config_over_tool_config(self) -> None:
         with tempfile.TemporaryDirectory() as repo_tmp, tempfile.TemporaryDirectory() as tool_tmp:
