@@ -133,6 +133,42 @@ class TestMainUnit(unittest.TestCase):
         self.assertIn("- src/Makefile", text)
         self.assertIn("[forbid-regex] [tier:build] [level:weighted:3]", text)
 
+    def test_prints_only_policies_with_non_zero_matches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            (repo_root / ".komply").mkdir()
+            (repo_root / ".komply" / "cpp.xml").write_text(
+                (
+                    "<komply>\n"
+                    "  <rules>\n"
+                    "    <max-lines value=\"10\" tier=\"maintainability\" weight=\"2\" />\n"
+                    "  </rules>\n"
+                    "</komply>\n"
+                ),
+                encoding="utf-8",
+            )
+            (repo_root / ".komply" / "py.xml").write_text(
+                (
+                    "<komply>\n"
+                    "  <rules>\n"
+                    "    <max-lines value=\"10\" tier=\"maintainability\" weight=\"2\" />\n"
+                    "  </rules>\n"
+                    "</komply>\n"
+                ),
+                encoding="utf-8",
+            )
+            (repo_root / "sample.cpp").write_text("int main(){return 0;}\n", encoding="utf-8")
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main.main(["--repo-root", str(repo_root)])
+
+        self.assertEqual(code, 0)
+        text = output.getvalue()
+        self.assertIn("Loaded 2 policy file(s)", text)
+        self.assertIn("- cpp: 1 file(s) matched", text)
+        self.assertNotIn("- py: 0 file(s) matched", text)
+
     def test_max_function_lines_detects_large_function_body(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)

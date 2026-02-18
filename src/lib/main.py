@@ -64,6 +64,8 @@ def render_report(repo_root: Path, report: engine.ScanReport, quiet: bool = Fals
     if not quiet:
         print(f"Loaded {report.policies_loaded} policy file(s)")
         for policy_name, file_count in sorted(report.files_by_policy.items()):
+            if file_count <= 0:
+                continue
             print(f"- {policy_name}: {file_count} file(s) matched")
 
     if total_violations:
