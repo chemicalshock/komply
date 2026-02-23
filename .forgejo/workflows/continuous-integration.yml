@@ -1,0 +1,161 @@
+name: Continous Integration
+
+on:
+  schedule:
+    - cron: "0 */12 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Decide whether to promote (and gather info)
+        id: decide
+        env:
+          API: ${{ github.api_url }}
+          REPO: ${{ github.repository }}
+          TOKEN: ${{ secrets.MERGE_TOKEN }}
+        run: |
+          set -eu
+
+          # 1) Is development ahead of master?
+          cmp_json="$(curl -fsS -H "Authorization: token ${TOKEN}" \
+            "${API}/repos/${REPO}/compare/master...development")"
+
+          ahead_by="$(printf '%s' "$cmp_json" | python3 -c 'import json,sys;o=json.load(sys.stdin);v=o.get("ahead_by",o.get("ahead",o.get("total_commits")));print(v if isinstance(v,int) or (isinstance(v,str) and v.isdigit()) else len(o["commits"]) if isinstance(o.get("commits"),list) else "")')"
+          echo "Compare result: ahead_by=${ahead_by:-unset}"
+
+          if [ -z "${ahead_by:-}" ] || [ "$ahead_by" -eq 0 ]; then
+            echo "ahead=no" >> "$GITHUB_OUTPUT"
+            echo "promote=no" >> "$GITHUB_OUTPUT"
+            echo "No promotion: development is not ahead of master (ahead_by=${ahead_by:-unset})"
+            exit 0
+          fi
+
+          echo "ahead=yes" >> "$GITHUB_OUTPUT"
+          echo "Development is ahead of master by ${ahead_by} commit(s)"
+
+          # 2) Is development HEAD green?
+          status_json="$(curl -fsS -H "Authorization: token ${TOKEN}" \
+            "${API}/repos/${REPO}/commits/development/status")"
+
+          state="$(printf '%s' "$status_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state",""))')"
+          echo "Development status state=${state:-unset}"
+
+          if [ "${state:-}" = "success" ]; then
+            echo "promote=yes" >> "$GITHUB_OUTPUT"
+            echo "Promotion gate: PASS"
+          else
+            echo "promote=no" >> "$GITHUB_OUTPUT"
+            echo "Promotion gate: BLOCKED (development status is not success)"
+          fi
+
+      - name: Check if Integration PR already exists
+        if: steps.decide.outputs.ahead == 'yes'
+        id: prcheck
+        env:
+          API: ${{ github.api_url }}
+          REPO: ${{ github.repository }}
+          TOKEN: ${{ secrets.MERGE_TOKEN }}
+        run: |
+          set -eu
+
+          owner="${REPO%%/*}"
+
+          pr_json="$(curl -fsS -H "Authorization: token ${TOKEN}" \
+            "${API}/repos/${REPO}/pulls?state=open&base=master&head=${owner}:development")"
+
+          # If we find any "number" field, assume at least one PR exists.
+          if printf '%s' "$pr_json" | grep -q '"number"'; then
+            echo "open_pr_exists=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "open_pr_exists=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Integration PR (if missing)
+        if: steps.decide.outputs.ahead == 'yes' && steps.prcheck.outputs.open_pr_exists == 'no'
+        env:
+          API: ${{ github.api_url }}
+          REPO: ${{ github.repository }}
+          TOKEN: ${{ secrets.MERGE_TOKEN }}
+        run: |
+          set -eu
+          owner="${REPO%%/*}"
+          pr_payload="$(printf '{"title":"Integration PR","head":"%s:development","base":"master","body":"Automated integration PR created by the hourly scheduler."}' "$owner")"
+
+          curl -fsS -X POST \
+            -H "Authorization: token ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${API}/repos/${REPO}/pulls" \
+            -d "$pr_payload" >/dev/null
+
+      - name: Checkout
+        if: steps.decide.outputs.promote == 'yes'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.MERGE_TOKEN }}
+
+      - name: Fast-forward master to development and push
+        if: steps.decide.outputs.promote == 'yes'
+        env:
+          BOT_USER: atlas-service-bot
+          TOKEN: ${{ secrets.MERGE_TOKEN }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          git config user.name  "$BOT_USER"
+          git config user.email "atlas-service-bot@local"
+
+          case "$SERVER" in
+            http://*)
+              SCHEME="http"
+              HOST="${SERVER#http://}"
+              ;;
+            https://*)
+              SCHEME="https"
+              HOST="${SERVER#https://}"
+              ;;
+            *)
+              SCHEME="https"
+              HOST="$SERVER"
+              ;;
+          esac
+
+          git remote set-url origin "${SCHEME}://${BOT_USER}:${TOKEN}@${HOST}/${REPO}.git"
+
+          git fetch origin master development
+          git checkout master
+          git reset --hard origin/master
+          git merge --ff-only origin/development
+          git push origin master
+
+      - name: Close Integration PR after promotion
+        if: steps.decide.outputs.promote == 'yes'
+        env:
+          API: ${{ github.api_url }}
+          REPO: ${{ github.repository }}
+          TOKEN: ${{ secrets.MERGE_TOKEN }}
+        run: |
+          set -eu
+          owner="${REPO%%/*}"
+          pr_json="$(curl -fsS -H "Authorization: token ${TOKEN}" \
+            "${API}/repos/${REPO}/pulls?state=open&base=master&head=${owner}:development")"
+
+          pr_numbers="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(" ".join(str(pr.get("number")) for pr in data if isinstance(pr, dict) and pr.get("number") is not None))')"
+
+          if [ -z "${pr_numbers:-}" ]; then
+            echo "No open Integration PR to close"
+            exit 0
+          fi
+
+          for pr_number in $pr_numbers; do
+            curl -fsS -X PATCH \
+              -H "Authorization: token ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              "${API}/repos/${REPO}/pulls/${pr_number}" \
+              -d '{"state":"closed"}' >/dev/null
+            echo "Closed Integration PR #${pr_number}"
+          done
