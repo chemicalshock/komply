@@ -13,9 +13,12 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import xml.etree.ElementTree as ET
 
 import engine
+
+PROJECT_KOMPLY_DIRNAME = ".komply"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -64,6 +67,100 @@ def resolve_config_dir(repo_root: Path, config_dir_arg: Path | None) -> Path:
         return tool_config_dir
 
     return local_config_dir
+
+
+def resolve_project_komply_dir(repo_root: Path) -> Path:
+    return (repo_root / PROJECT_KOMPLY_DIRNAME).resolve()
+
+
+def resolve_policy_sources(
+    repo_root: Path,
+    config_dir_arg: Path | None,
+) -> tuple[Path | None, Path | None]:
+    if config_dir_arg is not None:
+        return resolve_config_dir(repo_root, config_dir_arg), None
+
+    project_policy_dir = resolve_project_komply_dir(repo_root)
+    if not project_policy_dir.is_dir():
+        project_policy_dir = None
+
+    tool_policy_dir: Path | None = None
+    tool_root = os.environ.get("KOMPLY_TOOL_ROOT")
+    if tool_root:
+        tool_policy_dir = (Path(tool_root) / PROJECT_KOMPLY_DIRNAME).resolve()
+
+    return project_policy_dir, tool_policy_dir
+
+
+def load_project_runtime_config(repo_root: Path) -> engine.ProjectRuntimeConfig:
+    project_komply_dir = resolve_project_komply_dir(repo_root)
+    runtime_path = project_komply_dir / engine.RUNTIME_CONFIG_FILENAME
+    if not runtime_path.exists():
+        return engine.ProjectRuntimeConfig()
+    if not runtime_path.is_file():
+        raise engine.KomplyConfigError(f"Runtime config path is not a file: {runtime_path}")
+
+    try:
+        root = ET.parse(runtime_path).getroot()
+    except ET.ParseError as exc:
+        raise engine.KomplyConfigError(f"{runtime_path}: invalid XML ({exc})") from exc
+
+    if root.tag != "komply-config":
+        raise engine.KomplyConfigError(
+            f"{runtime_path}: root tag must be <komply-config>, found <{root.tag}>"
+        )
+
+    raw_version = (root.attrib.get("version") or "").strip()
+    if raw_version != "1":
+        raise engine.KomplyConfigError(
+            f"{runtime_path}: attribute 'version' must be '1'"
+        )
+
+    ignore_directories: list[str] = []
+    seen: set[str] = set()
+    scan_node = root.find("scan")
+    if scan_node is not None:
+        for node in scan_node.findall("ignore-directory"):
+            normalized = normalize_ignore_directory_path(
+                runtime_path=runtime_path,
+                raw_path=(node.attrib.get("path") or "").strip(),
+            )
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            ignore_directories.append(normalized)
+
+    return engine.ProjectRuntimeConfig(
+        version=1,
+        ignore_directories=tuple(ignore_directories),
+    )
+
+
+def normalize_ignore_directory_path(runtime_path: Path, raw_path: str) -> str:
+    if not raw_path:
+        raise engine.KomplyConfigError(
+            f"{runtime_path}: <ignore-directory> requires non-empty attribute 'path'"
+        )
+
+    candidate = raw_path.replace("\\", "/").strip("/")
+    if not candidate:
+        raise engine.KomplyConfigError(
+            f"{runtime_path}: <ignore-directory path=\"{raw_path}\"> is invalid"
+        )
+
+    pure_path = PurePosixPath(candidate)
+    if pure_path.is_absolute() or raw_path.startswith("/"):
+        raise engine.KomplyConfigError(
+            f"{runtime_path}: <ignore-directory path=\"{raw_path}\"> must be repo-relative"
+        )
+
+    parts = [part for part in pure_path.parts if part not in ("", ".")]
+    if not parts or any(part == ".." for part in parts):
+        raise engine.KomplyConfigError(
+            f"{runtime_path}: <ignore-directory path=\"{raw_path}\"> must be normalized and repo-relative"
+        )
+
+    return "/".join(parts)
 
 
 def render_report(repo_root: Path, report: engine.ScanReport, quiet: bool = False) -> None:
@@ -154,10 +251,19 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(sys.argv[1:] if argv is None else argv)
 
     repo_root = (args.repo_root or Path.cwd()).resolve()
-    config_dir = resolve_config_dir(repo_root, args.config_dir)
 
     try:
-        report = engine.scan_repository(repo_root=repo_root, config_dir=config_dir)
+        runtime_config = load_project_runtime_config(repo_root)
+        project_policy_dir, tool_policy_dir = resolve_policy_sources(
+            repo_root=repo_root,
+            config_dir_arg=args.config_dir,
+        )
+        report = engine.scan_repository(
+            repo_root=repo_root,
+            project_policy_dir=project_policy_dir,
+            tool_policy_dir=tool_policy_dir,
+            runtime_config=runtime_config,
+        )
     except engine.KomplyConfigError as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 2

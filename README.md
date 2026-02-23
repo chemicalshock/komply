@@ -16,6 +16,9 @@ You can override target matching on `<komply>` for extensionless or custom files
 - `match="filename"` with `pattern="Makefile"` (or glob on filename)
 - `match="glob"` with `pattern="**/Makefile"` (repo-relative path glob)
 
+Komply also supports an optional project runtime config file at
+`.komply/00-config.xml` for scan-wide settings such as ignored directories.
+
 ## Supported Rules
 
 - `max-line-length value="N"`
@@ -78,11 +81,32 @@ Example:
 />
 ```
 
-Config directory resolution order:
+Policy loading behavior:
 
-- `--config-dir` when provided
-- `<current working directory>/.komply` when present
-- `<komply install root>/.komply` as fallback
+- `--config-dir` remains a direct policy directory override
+- Without `--config-dir`, Komply loads project policies from `<repo_root>/.komply`
+  and fallback policies from `<komply install root>/.komply`
+- Project policies override only matching fallback policies by filename stem
+  (for example local `cpp.xml` overrides fallback `cpp.xml`)
+- Fallback policies without a local override remain active
+- `00-config.xml` is reserved for runtime config and is not treated as a policy
+
+Runtime config format (`.komply/00-config.xml`):
+
+```xml
+<komply-config version="1">
+  <scan>
+    <ignore-directory path="build" />
+    <ignore-directory path="vendor" />
+    <ignore-directory path="src/generated" />
+  </scan>
+</komply-config>
+```
+
+Notes:
+
+- `ignore-directory` paths are repo-relative directory paths (not globs)
+- ignored directories are pruned during traversal before per-policy filters run
 
 ## Quality Rating
 

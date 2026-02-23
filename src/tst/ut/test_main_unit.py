@@ -472,6 +472,70 @@ class TestMainUnit(unittest.TestCase):
         self.assertIn("[tier:tool]", text)
         self.assertIn("cpp: 1 file(s) matched", text)
 
+    def test_load_project_runtime_config_returns_defaults_when_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+
+            runtime_config = main.load_project_runtime_config(repo_root)
+
+        self.assertEqual(runtime_config.version, 1)
+        self.assertEqual(runtime_config.ignore_directories, ())
+
+    def test_load_project_runtime_config_parses_and_normalizes_ignore_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            (repo_root / ".komply").mkdir()
+            (repo_root / ".komply" / "00-config.xml").write_text(
+                (
+                    "<komply-config version=\"1\">\n"
+                    "  <scan>\n"
+                    "    <ignore-directory path=\"./build/\" />\n"
+                    "    <ignore-directory path=\"src/generated\" />\n"
+                    "    <ignore-directory path=\"src/generated/\" />\n"
+                    "  </scan>\n"
+                    "</komply-config>\n"
+                ),
+                encoding="utf-8",
+            )
+
+            runtime_config = main.load_project_runtime_config(repo_root)
+
+        self.assertEqual(runtime_config.version, 1)
+        self.assertEqual(runtime_config.ignore_directories, ("build", "src/generated"))
+
+    def test_load_project_runtime_config_rejects_absolute_ignore_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            (repo_root / ".komply").mkdir()
+            (repo_root / ".komply" / "00-config.xml").write_text(
+                (
+                    "<komply-config version=\"1\">\n"
+                    "  <scan>\n"
+                    "    <ignore-directory path=\"/vendor\" />\n"
+                    "  </scan>\n"
+                    "</komply-config>\n"
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(main.engine.KomplyConfigError):
+                main.load_project_runtime_config(repo_root)
+
+    def test_resolve_policy_sources_merges_project_and_tool_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as repo_tmp, tempfile.TemporaryDirectory() as tool_tmp:
+            repo_root = Path(repo_tmp)
+            tool_root = Path(tool_tmp)
+            (repo_root / ".komply").mkdir()
+
+            with patch.dict("os.environ", {"KOMPLY_TOOL_ROOT": str(tool_root)}):
+                project_policy_dir, tool_policy_dir = main.resolve_policy_sources(
+                    repo_root=repo_root,
+                    config_dir_arg=None,
+                )
+
+        self.assertEqual(project_policy_dir, (repo_root / ".komply").resolve())
+        self.assertEqual(tool_policy_dir, (tool_root / ".komply").resolve())
+
 
 if __name__ == "__main__":
     unittest.main()

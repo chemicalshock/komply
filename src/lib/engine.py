@@ -1,7 +1,7 @@
 # -------------------------------------------------------------
 #
 #!\file engine.py
-#!\brief Main engine for loading policies, discovering target 
+#!\brief Main engine for loading policies, discovering target
 #       files, evaluating rules, and generating scan reports.
 #!\author Colin J.D. Stewart
 #
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from fnmatch import fnmatch
+import os
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
@@ -74,6 +75,12 @@ class ScanReport:
     quality_status: str
 
 
+@dataclass(frozen=True)
+class ProjectRuntimeConfig:
+    version: int = 1
+    ignore_directories: tuple[str, ...] = ()
+
+
 SUPPORTED_RULES = (
     "max-line-length",
     "max-lines",
@@ -84,15 +91,32 @@ SUPPORTED_RULES = (
     "require-final-newline",
 )
 SUPPORTED_MATCH_KINDS = ("extension", "filename", "glob")
+RUNTIME_CONFIG_FILENAME = "00-config.xml"
 
 
-def scan_repository(repo_root: Path, config_dir: Path) -> ScanReport:
-    policies = load_policies(config_dir)
+def scan_repository(
+    repo_root: Path,
+    project_policy_dir: Path | None = None,
+    tool_policy_dir: Path | None = None,
+    runtime_config: ProjectRuntimeConfig | None = None,
+) -> ScanReport:
+    if runtime_config is None:
+        runtime_config = ProjectRuntimeConfig()
+
+    policies = load_effective_policies(
+        project_policy_dir=project_policy_dir,
+        tool_policy_dir=tool_policy_dir,
+    )
     files_by_policy: dict[str, int] = {}
     violations: list[Violation] = []
 
     for policy in policies:
-        targets = discover_targets(repo_root, config_dir, policy)
+        targets = discover_targets(
+            repo_root=repo_root,
+            project_policy_dir=project_policy_dir,
+            policy=policy,
+            runtime_config=runtime_config,
+        )
         files_by_policy[policy.name] = len(targets)
         for target in targets:
             violations.extend(evaluate_file(target, policy))
@@ -122,13 +146,65 @@ def scan_repository(repo_root: Path, config_dir: Path) -> ScanReport:
 
 
 def load_policies(config_dir: Path) -> list[Policy]:
+    return _load_policies_from_dir(config_dir, allow_missing=False, allow_empty=False)
+
+
+def load_effective_policies(
+    project_policy_dir: Path | None,
+    tool_policy_dir: Path | None,
+) -> list[Policy]:
+    tool_policies = _load_policies_optional(tool_policy_dir)
+    project_policies = _load_policies_optional(project_policy_dir)
+
+    if not tool_policies and not project_policies:
+        error_dir = project_policy_dir or tool_policy_dir
+        if error_dir is None:
+            raise KomplyConfigError("No XML policies found (no policy directories configured)")
+        if not error_dir.exists():
+            raise KomplyConfigError(f"Configuration directory not found: {error_dir}")
+        if not error_dir.is_dir():
+            raise KomplyConfigError(f"Configuration path is not a directory: {error_dir}")
+        raise KomplyConfigError(f"No XML policies found in: {error_dir}")
+
+    effective = dict(tool_policies)
+    effective.update(project_policies)
+    return [effective[name] for name in sorted(effective)]
+
+
+def _load_policies_optional(config_dir: Path | None) -> dict[str, Policy]:
+    if config_dir is None:
+        return {}
+    return {
+        policy.name: policy
+        for policy in _load_policies_from_dir(
+            config_dir,
+            allow_missing=True,
+            allow_empty=True,
+        )
+    }
+
+
+def _load_policies_from_dir(
+    config_dir: Path,
+    *,
+    allow_missing: bool,
+    allow_empty: bool,
+) -> list[Policy]:
     if not config_dir.exists():
+        if allow_missing:
+            return []
         raise KomplyConfigError(f"Configuration directory not found: {config_dir}")
     if not config_dir.is_dir():
         raise KomplyConfigError(f"Configuration path is not a directory: {config_dir}")
 
-    xml_paths = sorted(path for path in config_dir.glob("*.xml") if path.is_file())
+    xml_paths = sorted(
+        path
+        for path in config_dir.glob("*.xml")
+        if path.is_file() and path.name != RUNTIME_CONFIG_FILENAME
+    )
     if not xml_paths:
+        if allow_empty:
+            return []
         raise KomplyConfigError(f"No XML policies found in: {config_dir}")
 
     return [parse_policy(path) for path in xml_paths]
@@ -457,24 +533,25 @@ def compile_optional_regex(
         ) from exc
 
 
-def discover_targets(repo_root: Path, config_dir: Path, policy: Policy) -> list[Path]:
-    config_prefix: str | None = None
-    try:
-        config_dir_rel = config_dir.relative_to(repo_root)
-        config_prefix = config_dir_rel.as_posix() + "/"
-    except ValueError:
-        config_prefix = None
+def discover_targets(
+    repo_root: Path,
+    project_policy_dir: Path | None,
+    policy: Policy,
+    runtime_config: ProjectRuntimeConfig,
+) -> list[Path]:
     targets: list[Path] = []
 
-    iterator = candidate_iterator(repo_root, policy)
-    for path in iterator:
-        if not path.is_file():
-            continue
-        rel = path.relative_to(repo_root).as_posix()
-        if config_prefix and rel.startswith(config_prefix):
-            continue
-        if rel.startswith(".git/"):
-            continue
+    ignored_directories = set(runtime_config.ignore_directories)
+    if project_policy_dir is not None:
+        try:
+            project_policy_rel = project_policy_dir.relative_to(repo_root).as_posix()
+        except ValueError:
+            project_policy_rel = None
+        if project_policy_rel:
+            ignored_directories.add(project_policy_rel)
+
+    iterator = candidate_iterator(repo_root, tuple(sorted(ignored_directories)))
+    for path, rel in iterator:
         if not matches_policy_target(path, rel, policy):
             continue
         if not matches_filters(rel, policy.includes, policy.excludes):
@@ -492,10 +569,31 @@ def matches_filters(path: str, includes: tuple[str, ...], excludes: tuple[str, .
     return True
 
 
-def candidate_iterator(repo_root: Path, policy: Policy):
-    if policy.matcher_kind == "extension":
-        return repo_root.rglob(f"*{policy.matcher_value}")
-    return repo_root.rglob("*")
+def candidate_iterator(repo_root: Path, ignored_directories: tuple[str, ...]):
+    ignored = set(ignored_directories)
+
+    for root_text, dir_names, file_names in os.walk(repo_root, topdown=True):
+        root = Path(root_text)
+        try:
+            rel_root = root.relative_to(repo_root).as_posix()
+        except ValueError:
+            continue
+
+        pruned_dir_names: list[str] = []
+        for dir_name in dir_names:
+            rel_dir = dir_name if rel_root == "." else f"{rel_root}/{dir_name}"
+            if rel_dir == ".git" or rel_dir.startswith(".git/"):
+                continue
+            if rel_dir in ignored:
+                continue
+            pruned_dir_names.append(dir_name)
+        dir_names[:] = pruned_dir_names
+
+        for file_name in file_names:
+            rel_file = file_name if rel_root == "." else f"{rel_root}/{file_name}"
+            if rel_file.startswith(".git/"):
+                continue
+            yield root / file_name, rel_file
 
 
 def matches_policy_target(path: Path, rel_path: str, policy: Policy) -> bool:
