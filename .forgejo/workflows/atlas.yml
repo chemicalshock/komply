@@ -37,15 +37,66 @@ jobs:
           TARGET_REPO_ROOT="$WORKSPACE_ROOT/$TARGET_REPO_NAME"
           ATLAS_REPO_ROOT="$WORKSPACE_ROOT/atlas-pipeline"
           ATLAS_LIB="$ATLAS_REPO_ROOT/src/lib"
+          ATLAS_INC="$ATLAS_REPO_ROOT/src/inc"
 
           if [ -n "${PYTHONPATH:-}" ]; then
-            export PYTHONPATH="$ATLAS_LIB:$PYTHONPATH"
+            export PYTHONPATH="$ATLAS_LIB:$ATLAS_INC:$PYTHONPATH"
           else
-            export PYTHONPATH="$ATLAS_LIB"
+            export PYTHONPATH="$ATLAS_LIB:$ATLAS_INC"
           fi
 
           REQUIRED_REPOS_FILE="$WORKSPACE_ROOT/.atlas-required-repos.tsv"
-          python3 -c 'import sys; from pathlib import Path; from atlas.config import load_config; config = load_config(Path(sys.argv[1])); [print("{}\t{}".format(required_repo.repository, required_repo.ref or "")) for required_repo in config.meta.required_repos]' "$TARGET_REPO_ROOT/.atlas/pipeline.xml" > "$REQUIRED_REPOS_FILE"
+          REQUIRED_SYSTEM_APT_FILE="$WORKSPACE_ROOT/.atlas-required-system-apt.tsv"
+          python3 - "$TARGET_REPO_ROOT/.atlas/pipeline.xml" "$REQUIRED_REPOS_FILE" "$REQUIRED_SYSTEM_APT_FILE" "$ATLAS_LIB" "$ATLAS_INC" <<'PY'
+          import sys
+          from pathlib import Path
+
+          pipeline_path = Path(sys.argv[1])
+          required_repos_path = Path(sys.argv[2])
+          required_system_apt_path = Path(sys.argv[3])
+          atlas_lib = sys.argv[4]
+          atlas_inc = sys.argv[5]
+
+          # Keep imports deterministic even when target repos define config.py/model.py.
+          sys.path.insert(0, atlas_inc)
+          sys.path.insert(0, atlas_lib)
+
+          from config import load_config
+
+          config = load_config(pipeline_path)
+
+          required_repos_raw = getattr(config.meta, "required_repos", [])
+          required_system_apt_raw = getattr(config.meta, "required_system_apt", [])
+
+          required_repo_lines: list[str] = []
+          for required_repo in required_repos_raw:
+              if isinstance(required_repo, str):
+                  required_repo_name = required_repo.strip()
+                  required_repo_ref = ""
+              else:
+                  required_repo_name = str(getattr(required_repo, "repository", "")).strip()
+                  required_repo_ref = str(getattr(required_repo, "ref", "") or "").strip()
+              if required_repo_name:
+                  required_repo_lines.append(f"{required_repo_name}\t{required_repo_ref}\n")
+
+          required_system_apt_lines: list[str] = []
+          for required_apt in required_system_apt_raw:
+              if isinstance(required_apt, str):
+                  required_apt_package = required_apt.strip()
+                  required_apt_version = ""
+                  required_apt_options = ""
+              else:
+                  required_apt_package = str(getattr(required_apt, "package", "")).strip()
+                  required_apt_version = str(getattr(required_apt, "version", "") or "").strip()
+                  required_apt_options = str(getattr(required_apt, "options", "") or "").strip()
+              if required_apt_package:
+                  required_system_apt_lines.append(
+                      f"{required_apt_package}\t{required_apt_version}\t{required_apt_options}\n"
+                  )
+
+          required_repos_path.write_text("".join(required_repo_lines), encoding="utf-8")
+          required_system_apt_path.write_text("".join(required_system_apt_lines), encoding="utf-8")
+          PY
 
           ORIGIN_URL="$(git -C "$TARGET_REPO_ROOT" remote get-url origin)"
           ORIGIN_AUTH_HEADER="$(git -C "$TARGET_REPO_ROOT" config --get-all "http.$ORIGIN_URL.extraheader" | head -n 1 || true)"
@@ -54,6 +105,34 @@ jobs:
             if [ -n "$ORIGIN_BASE_URL" ]; then
               ORIGIN_AUTH_HEADER="$(git -C "$TARGET_REPO_ROOT" config --get-all "http.$ORIGIN_BASE_URL.extraheader" | head -n 1 || true)"
             fi
+          fi
+
+          if [ -s "$REQUIRED_SYSTEM_APT_FILE" ]; then
+            if command -v sudo >/dev/null 2>&1; then
+              APT_PREFIX=(sudo)
+            elif [ "$(id -u)" -eq 0 ]; then
+              APT_PREFIX=()
+            else
+              echo "atlas: error: required apt packages need elevated privileges (sudo not found and not running as root)" >&2
+              exit 4
+            fi
+
+            "${APT_PREFIX[@]}" apt-get update
+            while IFS="$(printf '\t')" read -r REQUIRED_APT_PACKAGE REQUIRED_APT_VERSION REQUIRED_APT_OPTIONS; do
+              if [ -n "$REQUIRED_APT_VERSION" ]; then
+                REQUIRED_APT_SPEC="${REQUIRED_APT_PACKAGE}=${REQUIRED_APT_VERSION}"
+              else
+                REQUIRED_APT_SPEC="$REQUIRED_APT_PACKAGE"
+              fi
+
+              APT_INSTALL_CMD=("${APT_PREFIX[@]}" apt-get install -y)
+              if [ -n "$REQUIRED_APT_OPTIONS" ]; then
+                read -r -a REQUIRED_APT_OPTIONS_ARRAY <<< "$REQUIRED_APT_OPTIONS"
+                APT_INSTALL_CMD+=("${REQUIRED_APT_OPTIONS_ARRAY[@]}")
+              fi
+              APT_INSTALL_CMD+=("$REQUIRED_APT_SPEC")
+              "${APT_INSTALL_CMD[@]}"
+            done < "$REQUIRED_SYSTEM_APT_FILE"
           fi
 
           if [ -s "$REQUIRED_REPOS_FILE" ]; then
@@ -93,8 +172,8 @@ jobs:
 
           cd "$TARGET_REPO_ROOT"
 
-          python3 -m atlas.main --repo-root "$ATLAS_REPO_ROOT" validate
-          python3 -m atlas.main --repo-root "$ATLAS_REPO_ROOT" run --trigger "$ATLAS_TRIGGER"
+          python3 -m main --repo-root "$ATLAS_REPO_ROOT" validate
+          python3 -m main --repo-root "$ATLAS_REPO_ROOT" run --trigger "$ATLAS_TRIGGER"
 
       - name: Upload ATLAS output
         if: always()
