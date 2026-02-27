@@ -4,7 +4,7 @@
 
 - **Document ID:** D00000001
 - **Title:** Per-Project Runtime Config and Merged Policy Loading
-- **Author(s):** Colin
+- **Author(s):** Colin J.D. Stewart
 - **Owner:** Colin J.D. Stewart
 - **Created (YYYY-MM-DD):** 2026-02-23
 - **Last Updated (YYYY-MM-DD):** 2026-02-23
