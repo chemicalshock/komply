@@ -4,16 +4,13 @@
 
 - **Document ID:** D00000001
 - **Title:** Per-Project Runtime Config and Merged Policy Loading
-- **Author(s):** Ryan (ORIM)
+- **Author(s):** Colin
 - **Owner:** Colin J.D. Stewart
 - **Created (YYYY-MM-DD):** 2026-02-23
 - **Last Updated (YYYY-MM-DD):** 2026-02-23
-- **Status:** DRAFT
+- **Status:** APPROVED
 - **Target Release / Milestone:** Next minor release
 - **Repository / Area:** komply / CLI + scan engine
-- **Tracking:** TBD
-- **Reviewers:** Colin J.D. Stewart
-- **Approvers:** Colin J.D. Stewart
 
 ---
 
