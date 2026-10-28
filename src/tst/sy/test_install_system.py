@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -12,6 +13,52 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class TestInstallSystem(unittest.TestCase):
+    def test_default_install_uses_directory_already_on_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bin_dir = root / ".local" / "bin"
+            bin_dir.mkdir(parents=True)
+            app_bin = root / "random-app" / "bin"
+            app_bin.mkdir(parents=True)
+            environment = dict(
+                os.environ, HOME=str(root), ALT_PYTHON=sys.executable,
+                PATH=f"{app_bin}:{bin_dir}:/usr/bin:/bin",
+            )
+            result = subprocess.run(
+                ["/bin/sh", str(REPO_ROOT / "install.sh")],
+                env=environment,
+                text=True, capture_output=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((bin_dir / "komply").is_file())
+            self.assertFalse((app_bin / "komply").exists())
+            self.assertNotIn("startup file", result.stdout)
+            help_result = subprocess.run(
+                ["komply", "--help"],
+                env=environment,
+                cwd=root, text=True, capture_output=True,
+            )
+            self.assertEqual(help_result.returncode, 0, help_result.stderr)
+            self.assertIn("--repo-root", help_result.stdout)
+
+    def test_default_install_falls_back_instead_of_using_app_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app_bin = root / "random-app" / "bin"
+            app_bin.mkdir(parents=True)
+            result = subprocess.run(
+                ["/bin/sh", str(REPO_ROOT / "install.sh")],
+                env=dict(
+                    os.environ, HOME=str(root), ALT_PYTHON=sys.executable,
+                    PATH=f"{app_bin}:/usr/bin:/bin",
+                ),
+                text=True, capture_output=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((root / ".local" / "bin" / "komply").is_file())
+            self.assertFalse((app_bin / "komply").exists())
+            self.assertIn("startup file", result.stdout)
+
     def test_installed_launcher_runs_checkout_from_another_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

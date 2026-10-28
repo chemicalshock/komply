@@ -130,10 +130,14 @@ cd komply
 ./install.sh
 ```
 
-The installer creates only a launcher at `~/.local/bin/komply`, pointing to this
-clone. Keep the clone in place. If that bin directory is missing from `PATH`,
-the installer prints the line to add to your shell startup file (for example
-`~/.bashrc` or `~/.zshrc`).
+The installer creates only a launcher pointing to this clone. It checks
+`~/.local/bin`, `~/bin`, then `/usr/local/bin`, choosing the first writable
+directory already on `PATH` (excluding the clone itself). App-specific `PATH`
+directories are never selected automatically.
+You can then run `komply` immediately. Keep the clone in place.
+If no writable directory is available, it falls back to `~/.local/bin` and
+prints the line to add to your shell startup file (for example `~/.bashrc` or
+`~/.zshrc`).
 No Python packages or administrator permissions are required.
 
 ```bash
@@ -150,7 +154,8 @@ parent directories for a project root.
 Use `./install.sh --prefix /custom/path` to choose another install prefix; put
 `/custom/path/bin` on `PATH`. Set `ALT_PYTHON` to choose a Python interpreter.
 Updates to the clone take effect immediately. If you move the clone, rerun the
-installer from its new location. To uninstall, remove `<prefix>/bin/komply`.
+installer from its new location. To uninstall, remove the launcher at the path
+printed by the installer.
 
 You can also run directly from the clone:
 
