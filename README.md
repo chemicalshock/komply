@@ -122,6 +122,38 @@ Komply computes a quality score and status for each run:
 
 ## Usage
 
+Install on Linux or macOS with Python 3.10 or newer:
+
+```bash
+git clone <repository-url>
+cd komply
+./install.sh
+```
+
+The installer creates only a launcher at `~/.local/bin/komply`, pointing to this
+clone. Keep the clone in place. If that bin directory is missing from `PATH`,
+the installer prints the line to add to your shell startup file (for example
+`~/.bashrc` or `~/.zshrc`).
+No Python packages or administrator permissions are required.
+
+```bash
+cd /path/to/project
+komply
+komply --quiet
+```
+
+The current directory is the scan root, even when it is not a Git repository.
+Komply reads that directory's `.komply` policies and `00-config.xml`, with the
+bundled policies providing the fallback described above. It does not search
+parent directories for a project root.
+
+Use `./install.sh --prefix /custom/path` to choose another install prefix; put
+`/custom/path/bin` on `PATH`. Set `ALT_PYTHON` to choose a Python interpreter.
+Updates to the clone take effect immediately. If you move the clone, rerun the
+installer from its new location. To uninstall, remove `<prefix>/bin/komply`.
+
+You can also run directly from the clone:
+
 ```bash
 ./komply
 ./komply --repo-root /path/to/repo
