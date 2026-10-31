@@ -35,6 +35,35 @@ class TestEngineUnit(unittest.TestCase):
             [5, 6, 7],
         )
 
+    def test_cpp_code_rules_ignore_comments_and_keep_todos(self) -> None:
+        policy = engine.parse_policy(Path(__file__).resolve().parents[3] / ".komply" / "cpp.xml")
+        source = (
+            "// NULL new delete goto using namespace std\n"
+            "/* NULL new\n"
+            "delete goto using namespace std */ auto p = NULL;\n"
+            "auto q = /* NULL */ new int; // delete\n"
+            "// TODO: replace NULL\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "comments.cpp"
+            path.write_text(source, encoding="utf-8")
+            violations = engine.evaluate_file(path, policy)
+        self.assertEqual(
+            sorted(item.line for item in violations if item.rule == "forbid-regex"),
+            [3, 4, 5],
+        )
+
+    def test_comment_mask_preserves_strings_and_offsets(self) -> None:
+        source = '"https://example/*NULL*/"; NULL; /* NULL */\n// NULL\n'
+        masked = engine.mask_non_code(source, mask_comments=True, mask_strings=False)
+        self.assertEqual(len(masked), len(source))
+        self.assertEqual(masked.splitlines()[0].rstrip(), '"https://example/*NULL*/"; NULL;')
+        self.assertEqual(masked.count("\n"), source.count("\n"))
+        self.assertEqual(
+            engine.mask_non_code("// NULL\n/* NULL */", mask_comments=False),
+            "// NULL\n/* NULL */",
+        )
+
     def test_load_policies_excludes_reserved_runtime_config_filename(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             config_dir = Path(tmp_dir)

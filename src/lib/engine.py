@@ -38,6 +38,7 @@ class Rule:
     start_regex: re.Pattern[str] | None = None
     exclude_regex: re.Pattern[str] | None = None
     include_strings: bool = True
+    include_comments: bool = True
 
 
 @dataclass(frozen=True)
@@ -388,6 +389,9 @@ def parse_rules(config_path: Path, rules_parent: ET.Element) -> list[Rule]:
                     include_strings=parse_bool_attr(
                         config_path, node, "include-strings", default=True
                     ),
+                    include_comments=parse_bool_attr(
+                        config_path, node, "include-comments", default=True
+                    ),
                 )
             )
             continue
@@ -404,6 +408,9 @@ def parse_rules(config_path: Path, rules_parent: ET.Element) -> list[Rule]:
                     weight=weight,
                     include_strings=parse_bool_attr(
                         config_path, node, "include-strings", default=True
+                    ),
+                    include_comments=parse_bool_attr(
+                        config_path, node, "include-comments", default=True
                     ),
                 )
             )
@@ -611,7 +618,7 @@ def evaluate_file(path: Path, policy: Policy) -> list[Violation]:
     lines = text.splitlines()
     violations: list[Violation] = []
     function_spans: list[tuple[int, int]] | None = None
-    text_without_strings: str | None = None
+    masked_texts: dict[tuple[bool, bool], str] = {}
 
     for rule in policy.rules:
         if rule.kind == "max-line-length":
@@ -671,12 +678,15 @@ def evaluate_file(path: Path, policy: Policy) -> list[Violation]:
             assert rule.regex is not None
             assert rule.pattern is not None
             haystack = text
-            if not rule.include_strings:
-                if text_without_strings is None:
-                    text_without_strings = mask_non_code(
-                        text, mask_comments=False, mask_strings=True
+            if not rule.include_strings or not rule.include_comments:
+                key = (rule.include_comments, rule.include_strings)
+                if key not in masked_texts:
+                    masked_texts[key] = mask_non_code(
+                        text,
+                        mask_comments=not rule.include_comments,
+                        mask_strings=not rule.include_strings,
                     )
-                haystack = text_without_strings
+                haystack = masked_texts[key]
 
             for match in rule.regex.finditer(haystack):
                 violations.append(
@@ -693,12 +703,15 @@ def evaluate_file(path: Path, policy: Policy) -> list[Violation]:
             assert rule.regex is not None
             assert rule.pattern is not None
             haystack = text
-            if not rule.include_strings:
-                if text_without_strings is None:
-                    text_without_strings = mask_non_code(
-                        text, mask_comments=False, mask_strings=True
+            if not rule.include_strings or not rule.include_comments:
+                key = (rule.include_comments, rule.include_strings)
+                if key not in masked_texts:
+                    masked_texts[key] = mask_non_code(
+                        text,
+                        mask_comments=not rule.include_comments,
+                        mask_strings=not rule.include_strings,
                     )
-                haystack = text_without_strings
+                haystack = masked_texts[key]
 
             if not rule.regex.search(haystack):
                 violations.append(
@@ -843,12 +856,12 @@ def mask_non_code(
 
         if char == "/" and nxt == "/":
             in_line_comment = True
-            out.extend((" ", " "))
+            out.extend((" ", " ") if mask_comments else (char, nxt))
             i += 2
             continue
         if char == "/" and nxt == "*":
             in_block_comment = True
-            out.extend((" ", " "))
+            out.extend((" ", " ") if mask_comments else (char, nxt))
             i += 2
             continue
         # C++ raw strings may contain quotes, backslashes, and newlines.
@@ -866,19 +879,13 @@ def mask_non_code(
                 i = end
                 continue
         if char == "'":
-            if mask_strings:
-                in_single_quote = True
-                out.append(" ")
-            else:
-                out.append(char)
+            in_single_quote = True
+            out.append(" " if mask_strings else char)
             i += 1
             continue
         if char == '"':
-            if mask_strings:
-                in_double_quote = True
-                out.append(" ")
-            else:
-                out.append(char)
+            in_double_quote = True
+            out.append(" " if mask_strings else char)
             i += 1
             continue
 

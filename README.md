@@ -37,18 +37,20 @@ All rules also support optional quality attributes:
 
 Regex rules also support:
 
-- `include-strings="true|false"` (default `true`) to ignore matches inside string literals
+- `include-strings="true|false"` (default `true`); set to `false` to ignore string literals
+- `include-comments="true|false"` (default `true`); set to `false` to ignore C/C++ line and block comments
 
-For C++ code checks, set `include-strings="false"` so SQL and other text do not
-trigger keyword rules. The bundled `NULL` and `new`/`delete` rules use this setting:
+For C++ code checks, set `include-strings="false"` and `include-comments="false"` so SQL and other text do not
+trigger keyword rules. The bundled `NULL` and `new`/`delete` rules use these settings:
 
 ```xml
-<forbid-regex pattern="\bNULL\b" include-strings="false" />
-<forbid-regex pattern="\b(new|delete)\b" include-strings="false" />
+<forbid-regex pattern="\bNULL\b" include-strings="false" include-comments="false" />
+<forbid-regex pattern="\b(new|delete)\b" include-strings="false" include-comments="false" />
 ```
 
 This handles ordinary quoted strings and C++ raw strings such as `R"sql(...)sql"`,
-including multiline raw strings. Matches in comments are still checked.
+including multiline raw strings. Code checks ignore comments; TODO/FIXME checks
+still include comments.
 
 ## Policy Format
 

@@ -15,13 +15,15 @@
     <forbid-regex
       pattern="\busing\s+namespace\s+std\b"
       tier="critical"
+      include-comments="false"
+      include-strings="false"
       blocking="true"
       message="Do not use 'using namespace std' in production code."
     />
 
-    <forbid-regex pattern="\bNULL\b" tier="modern-cpp" weight="4" message="Use nullptr instead of NULL." include-strings="false" />
-    <forbid-regex pattern="\bgoto\b" tier="maintainability" weight="8" />
+    <forbid-regex pattern="\bNULL\b" tier="modern-cpp" weight="4" message="Use nullptr instead of NULL." include-strings="false" include-comments="false" />
+    <forbid-regex pattern="\bgoto\b" tier="maintainability" weight="8" include-comments="false" />
     <forbid-regex pattern="\b(TODO|FIXME)\b" tier="delivery" weight="5" include-strings="false" />
-    <forbid-regex pattern="\b(new|delete)\b" tier="memory-safety" weight="7" include-strings="false" />
+    <forbid-regex pattern="\b(new|delete)\b" tier="memory-safety" weight="7" include-strings="false" include-comments="false" />
   </rules>
 </komply>
