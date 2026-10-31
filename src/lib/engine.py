@@ -90,6 +90,7 @@ SUPPORTED_RULES = (
     "require-regex",
     "forbid-trailing-whitespace",
     "require-final-newline",
+    "require-own-header-first",
 )
 SUPPORTED_MATCH_KINDS = ("extension", "filename", "glob")
 RUNTIME_CONFIG_FILENAME = "00-config.xml"
@@ -415,7 +416,11 @@ def parse_rules(config_path: Path, rules_parent: ET.Element) -> list[Rule]:
                 )
             )
             continue
-        if kind in ("forbid-trailing-whitespace", "require-final-newline"):
+        if kind in (
+            "forbid-trailing-whitespace",
+            "require-final-newline",
+            "require-own-header-first",
+        ):
             rules.append(
                 Rule(
                     kind=kind,
@@ -734,6 +739,37 @@ def evaluate_file(path: Path, policy: Policy) -> list[Violation]:
                             message=rule.message or "Trailing whitespace is not allowed",
                         )
                     )
+            continue
+
+        if rule.kind == "require-own-header-first":
+            header_suffix = {".c": ".h", ".cpp": ".hpp"}.get(path.suffix)
+            if header_suffix is not None:
+                expected = path.stem + header_suffix
+                # Mask strings to avoid directives inside multiline raw literals;
+                # retain a comment-only view to read the actual include operand.
+                code = mask_non_code(text)
+                uncommented = mask_non_code(text, mask_strings=False)
+                directives = list(re.finditer(r"^[ \t]*#[ \t]*include\b", code, re.MULTILINE))
+                for index, directive in enumerate(directives):
+                    operand = re.match(
+                        r'[ \t]*(?:"([^"\n]+)"|<([^>\n]+)>)',
+                        uncommented[directive.end():],
+                    )
+                    if operand is None:
+                        continue
+                    header = operand.group(1) or operand.group(2)
+                    if Path(header).name == expected:
+                        if index != 0:
+                            violations.append(
+                                make_violation(
+                                    path=path,
+                                    rule=rule,
+                                    line=line_number(text, directive.start()),
+                                    message=rule.message
+                                    or f"Matching header {expected} must be the first include",
+                                )
+                            )
+                        break
             continue
 
         if rule.kind == "require-final-newline":

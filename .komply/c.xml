@@ -11,6 +11,7 @@
     <max-function-lines value="120" tier="maintainability" weight="8" />
     <forbid-trailing-whitespace tier="style" weight="2" />
     <require-final-newline tier="style" weight="1" />
+    <require-own-header-first tier="style" weight="2" />
 
     <forbid-regex pattern="\bgoto\b" tier="maintainability" weight="8" />
     <forbid-regex pattern="\b(TODO|FIXME)\b" tier="delivery" weight="4" include-strings="false" />

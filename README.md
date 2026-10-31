@@ -28,6 +28,7 @@ Komply also supports an optional project runtime config file at
 - `require-regex pattern="..."`
 - `forbid-trailing-whitespace`
 - `require-final-newline`
+- `require-own-header-first`: if a `.c` file includes its matching `.h`, or a `.cpp` file includes its matching `.hpp`, that header must be the first include. Matches by basename, including directory-qualified paths and quoted or angle-bracket includes. Comments and string literals are ignored; headers are not required to be included. Include order is checked as written, without evaluating preprocessor conditions. Enabled in the bundled C and C++ policies.
 
 All rules also support optional quality attributes:
 
@@ -45,12 +46,16 @@ trigger keyword rules. The bundled `NULL` and `new`/`delete` rules use these set
 
 ```xml
 <forbid-regex pattern="\bNULL\b" include-strings="false" include-comments="false" />
-<forbid-regex pattern="\b(new|delete)\b" include-strings="false" include-comments="false" />
+<forbid-regex pattern="\bnew\b|\bdelete\b(?!\s*;)" include-strings="false" include-comments="false" />
 ```
 
 This handles ordinary quoted strings and C++ raw strings such as `R"sql(...)sql"`,
 including multiline raw strings. Code checks ignore comments; TODO/FIXME checks
 still include comments.
+
+The C++ memory rule allows deleted functions such as `Widget() = delete;`,
+including comments or line breaks before the semicolon. It still flags `new`,
+`delete ptr;`, `delete (ptr);`, and `delete[] ptr;`.
 
 ## Policy Format
 

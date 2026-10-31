@@ -11,6 +11,7 @@
     <max-function-lines value="120" tier="maintainability" weight="8" />
     <forbid-trailing-whitespace tier="style" weight="2" />
     <require-final-newline tier="style" weight="1" />
+    <require-own-header-first tier="style" weight="2" />
 
     <forbid-regex
       pattern="\busing\s+namespace\s+std\b"
@@ -24,6 +25,6 @@
     <forbid-regex pattern="\bNULL\b" tier="modern-cpp" weight="4" message="Use nullptr instead of NULL." include-strings="false" include-comments="false" />
     <forbid-regex pattern="\bgoto\b" tier="maintainability" weight="8" include-comments="false" />
     <forbid-regex pattern="\b(TODO|FIXME)\b" tier="delivery" weight="5" include-strings="false" />
-    <forbid-regex pattern="\b(new|delete)\b" tier="memory-safety" weight="7" include-strings="false" include-comments="false" />
+    <forbid-regex pattern="\bnew\b|\bdelete\b(?!\s*;)" tier="memory-safety" weight="7" include-strings="false" include-comments="false" />
   </rules>
 </komply>

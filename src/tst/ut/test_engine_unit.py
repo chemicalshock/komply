@@ -15,6 +15,67 @@ import engine
 
 
 class TestEngineUnit(unittest.TestCase):
+    def test_cpp_memory_rule_allows_deleted_functions(self) -> None:
+        policy = engine.parse_policy(Path(__file__).resolve().parents[3] / ".komply" / "cpp.xml")
+        source = (
+            "Widget() = delete;\n"
+            "Widget(const Widget&) = delete /* disabled */ ;\n"
+            "Widget& operator=(const Widget&) = delete\n"
+            "    ;\n"
+            "void reset() = delete;\n"
+            "Widget(Widget&&) = delete // disabled\n"
+            "    ;\n"
+            "auto p = new Widget;\n"
+            "delete p;\n"
+            "delete (p);\n"
+            "delete[] p;\n"
+            "delete /* operand */\n"
+            "    p;\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            for extension in ("cpp", "hpp"):
+                with self.subTest(extension=extension):
+                    path = Path(tmp_dir) / f"widget.{extension}"
+                    path.write_text(source, encoding="utf-8")
+                    findings = [v.line for v in engine.evaluate_file(path, policy)
+                                if v.tier == "memory-safety"]
+                    self.assertEqual(findings, [8, 9, 10, 11, 12])
+
+    def test_own_header_first_in_bundled_policies(self) -> None:
+        cases = [
+            ('#include "widget{header}"\n#include <stdio.h>\n', None),
+            ('#include <stdio.h>\n#include "widget{header}"\n', 2),
+            ('# include OTHER\n# include <project/widget{header}>\n', 2),
+            ('#include "other{header}"\n', None),
+            ('#include "widget.wrong"\n', None),
+            ('// #include <ignored>\n/* #include <ignored> */\n'
+             '# /* comment */ include "project/widget{header}"\n', None),
+            ('auto text = R"tag(\n#include <ignored>\n)tag";\n'
+             '#include "widget{header}"\n', None),
+            ('#include "widget{header}"\n#include "widget{header}"\n', None),
+            ('#include <stdio.h>\n// #include "widget{header}"\n', None),
+        ]
+        root = Path(__file__).resolve().parents[3]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            for language, header in (("c", ".h"), ("cpp", ".hpp")):
+                policy = engine.parse_policy(root / ".komply" / f"{language}.xml")
+                for source, expected_line in cases:
+                    with self.subTest(language=language, source=source):
+                        path = Path(tmp_dir) / f"widget.{language}"
+                        path.write_text(source.replace("{header}", header), encoding="utf-8")
+                        findings = [v for v in engine.evaluate_file(path, policy)
+                                    if v.rule == "require-own-header-first"]
+                        self.assertEqual([v.line for v in findings],
+                                         [] if expected_line is None else [expected_line])
+                        if findings:
+                            self.assertEqual(findings[0].tier, "style")
+                            self.assertEqual(findings[0].weight, 2)
+                            self.assertIn("widget" + header, findings[0].message)
+                path = Path(tmp_dir) / ("widget" + header)
+                path.write_text('#include <other>\n#include "widget' + header + '"\n', encoding="utf-8")
+                self.assertFalse(any(v.rule == "require-own-header-first"
+                                     for v in engine.evaluate_file(path, policy)))
+
     def test_cpp_keyword_rules_ignore_sql_strings_and_keep_code_findings(self) -> None:
         policy = engine.parse_policy(Path(__file__).resolve().parents[3] / ".komply" / "cpp.xml")
         source = (
