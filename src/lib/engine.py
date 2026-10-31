@@ -851,6 +851,20 @@ def mask_non_code(
             out.extend((" ", " "))
             i += 2
             continue
+        # C++ raw strings may contain quotes, backslashes, and newlines.
+        if char in "RuUL" and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")):
+            raw_start = re.match(r'(?:u8|u|U|L)?R"([^\s()\\]{0,16})\(', text[i:])
+            if raw_start is not None:
+                terminator = ")" + raw_start.group(1) + '"'
+                end = text.find(terminator, i + raw_start.end())
+                end = length if end == -1 else end + len(terminator)
+                raw_text = text[i:end]
+                if mask_strings:
+                    out.extend("\n" if c == "\n" else " " for c in raw_text)
+                else:
+                    out.extend(raw_text)
+                i = end
+                continue
         if char == "'":
             if mask_strings:
                 in_single_quote = True

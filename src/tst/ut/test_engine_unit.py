@@ -15,6 +15,26 @@ import engine
 
 
 class TestEngineUnit(unittest.TestCase):
+    def test_cpp_keyword_rules_ignore_sql_strings_and_keep_code_findings(self) -> None:
+        policy = engine.parse_policy(Path(__file__).resolve().parents[3] / ".komply" / "cpp.xml")
+        source = (
+            'auto sql = "SELECT NULL, \\"new\\" FROM records; delete";\n'
+            'auto raw = R"sql(SELECT "NULL", new\n'
+            'delete FROM records)sql";\n'
+            'auto wide = u8R"(SELECT "NULL", new, delete)";\n'
+            'auto p = new int;\n'
+            'delete p;\n'
+            'auto q = NULL;\n'
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "query.cpp"
+            path.write_text(source, encoding="utf-8")
+            violations = engine.evaluate_file(path, policy)
+        self.assertEqual(
+            sorted(item.line for item in violations if item.rule == "forbid-regex"),
+            [5, 6, 7],
+        )
+
     def test_load_policies_excludes_reserved_runtime_config_filename(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             config_dir = Path(tmp_dir)

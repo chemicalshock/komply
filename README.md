@@ -39,6 +39,17 @@ Regex rules also support:
 
 - `include-strings="true|false"` (default `true`) to ignore matches inside string literals
 
+For C++ code checks, set `include-strings="false"` so SQL and other text do not
+trigger keyword rules. The bundled `NULL` and `new`/`delete` rules use this setting:
+
+```xml
+<forbid-regex pattern="\bNULL\b" include-strings="false" />
+<forbid-regex pattern="\b(new|delete)\b" include-strings="false" />
+```
+
+This handles ordinary quoted strings and C++ raw strings such as `R"sql(...)sql"`,
+including multiline raw strings. Matches in comments are still checked.
+
 ## Policy Format
 
 ```xml

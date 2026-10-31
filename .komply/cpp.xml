@@ -19,9 +19,9 @@
       message="Do not use 'using namespace std' in production code."
     />
 
-    <forbid-regex pattern="\bNULL\b" tier="modern-cpp" weight="4" message="Use nullptr instead of NULL." />
+    <forbid-regex pattern="\bNULL\b" tier="modern-cpp" weight="4" message="Use nullptr instead of NULL." include-strings="false" />
     <forbid-regex pattern="\bgoto\b" tier="maintainability" weight="8" />
     <forbid-regex pattern="\b(TODO|FIXME)\b" tier="delivery" weight="5" include-strings="false" />
-    <forbid-regex pattern="\b(new|delete)\b" tier="memory-safety" weight="7" />
+    <forbid-regex pattern="\b(new|delete)\b" tier="memory-safety" weight="7" include-strings="false" />
   </rules>
 </komply>
